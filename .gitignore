@@ -1,0 +1,41 @@
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.opendb
+*.sln
+*.suo
+*.user
+*.userprefs
+*.sdf
+*.opensdf
+*.sln.docstates
+
+# Rider / JetBrains
+.idea/
+
+# Unreal generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Unreal build/config generated files
+*.opensdf
+*.sdf
+*.suo
+
+# Compiled files
+*.dll
+*.exe
+*.pdb
+*.obj
+*.lib
+*.exp
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
