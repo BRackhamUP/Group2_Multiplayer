@@ -19,5 +19,5 @@ class GROUP2_MULTIPLAYER_API AGameplayGameMode : public AGameModeBase
 public:
 
 	// override unreal default spawn selctino so each local player gets the playerstart that matches their player number
-	virtual AActor* ChoosePlayerStart_Implementation(	AController* Player	) override;
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 };
