@@ -6,120 +6,217 @@
 #include "Engine/GameInstance.h"
 #include "MultiplayerGameInstance.generated.h"
 
+
+class UStaticMesh;
+
 /*
-holds the data needed to remmeber each player during the game session
+one available body colour
 
-data is stored in the game instance rather than individual characters, characters/controllers can be destroyed and recreated during level changes
+CosmeticId is included so a future unlock/save system has a stable
+identifier to work with without changing the current array structure
+*/
+USTRUCT(BlueprintType)
+struct FBodyColourOption
+{
+	GENERATED_BODY()
 
-one of these structs is created for each player
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FName CosmeticId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FLinearColor Colour = FLinearColor::White;
+};
+
+
+/*
+one available mesh cosmetic
+
+RelativeTransform allows designers to adjust an item's position,
+rotation and scale without changing code
+*/
+USTRUCT(BlueprintType)
+struct FCosmeticMeshOption
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FName CosmeticId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	TObjectPtr<UStaticMesh> Mesh = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FTransform RelativeTransform = FTransform::Identity;
+};
+
+/*
+holds the data needed to remember each player during the game session
+
+this lives in the GameInstance rather than the player character because
+characters/controllers are destroyed and recreated during level changes
+
+one struct exists for each participating player
 */
 USTRUCT(BlueprintType)
 struct FSessionPlayerData
 {
 	GENERATED_BODY()
 
-	// own player number/slot, 0=player1, 1=player2 so on...
+	// zero based - 0 = player 1, 1 = player 2 etc...
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 PlayerSlot = INDEX_NONE;
 
-	// bool for if 'this' player has readied up
+	// whether this player has readied up
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	bool bReady = false;
 
-	// cureent temporary cosmetic choice for the lobby
+	/*
+	current body colour
+
+	keeping the existing CosmeticIndex name avoids unnecessarily breaking
+	the existing Blueprint logic - it now specifically represents colour
+	*/
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 CosmeticIndex = 0;
 
-	//unreal ID for the user that owns this player physical controller
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 HeadCosmeticIndex = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 ChestCosmeticIndex = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 LegsCosmeticIndex = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 BackCosmeticIndex = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 SelectedCustomisationRow = 0;
+
+	// unreal user that owns this player's controller
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 PlatformUserInternalId = INDEX_NONE;
 
-	// unreal ID for the actual physica; input device
+	// physical input device ID
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 InputDeviceInternalId = INDEX_NONE;
 };
 
-// event broadcast whenever the player data changes
-// used in widgets for refreshing
+
+// widgets / preview actors listen to this to update themselves
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSessionPlayersChanged);
 
-/*
-game instance used to manage the local multiplayer session
 
-game instance survives between levels so it is  used to keep track of, 
-connected controllers, which player owns each controller, ready up state, temporary cosmetic changes
-
-also handles creating/removing local players when the controllers connect/disconenct
-*/
 UCLASS()
 class GROUP2_MULTIPLAYER_API UMultiplayerGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
 
 public:
-	// check connected controller and rebuild the lobby players if anything has changed
+
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Lobby")
 	void SynchroniseLobbyPlayers();
 
-	// returns how many valid gamepads unreal currently detects with a max of 4
+
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
 	int32 GetConnectedGamepadCount() const;
 
-	// number of players currently stored in session
+
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
 	int32 GetSessionPlayerCount() const;
 
-	// for giving blueprints a copy of the current session player info
+
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
 	TArray<FSessionPlayerData> GetSessionPlayers() const;
 
-	// find the session player slot unsing cntrollers platform user ID
+
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
 	int32 GetPlayerSlotForPlatformUser(int32 PlatformUserInternalId) const;
 
-	// marking one player session data as ready
+
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Lobby")
 	bool ReadyPlayer(int32 PlayerSlot);
 
-	// returns true only if every player currently in session is ready
+
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
 	bool AreAllSessionPlayersReady() const;
 
-	// move forward/baclward through the temporary cosmetic choices
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation")
+	void MoveCustomisationSelection(int32 PlayerSlot, int32 Direction);
+
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation")
 	void CycleCosmetic(int32 PlayerSlot, int32 Direction);
 
-	// return how many cosmetic options cureently exist
+
+	// kept for compatibility with any Blueprint references
+	// now returns the number of body colour options
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation")
 	int32 GetCosmeticOptionCount() const;
 
-	// reset ready/cosmetic state without destroying the sesoin player entry
+
+	/*
+	used by the lobby UI so it can display the currently selected
+	option name without needing to understand all the arrays itself
+	*/
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation")
+	FText GetCustomisationDisplayName(int32 PlayerSlot, int32 CategoryIndex) const;
+
+
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Session")
 	void ResetSession();
 
-	// widget binding for refreshing when the session data changes
+	/*
+	designers populate these arrays through BP_GI_Multiplayer
+	no C++ changes are required when new hats/chest pieces/etc are created
+	*/
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FBodyColourOption> BodyColourOptions;
+
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FCosmeticMeshOption> HeadCosmeticOptions;
+
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FCosmeticMeshOption> ChestCosmeticOptions;
+
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FCosmeticMeshOption> LegsCosmeticOptions;
+
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FCosmeticMeshOption> BackCosmeticOptions;
+
 	UPROPERTY(BlueprintAssignable, Category = "Multiplayer|Events")
 	FOnSessionPlayersChanged OnSessionPlayersChanged;
 
+
 protected:
 
-	// list containign current players participating in the sesion
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Multiplayer|Session")
 	TArray<FSessionPlayerData> SessionPlayers;
-
-	// num of temporary cosmetic options
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation", meta = (ClampMin = "1"))
-	int32 CosmeticOptionCount = 4;
 
 
 private:
 
-	// detect valid connected gamepads and get the device ID and platform user ID
 	void GetConnectedGamepadMappings(TArray<FInputDeviceId>& OutDeviceIds, TArray<FPlatformUserId>& OutPlatformUsers) const;
 
-	// check whether the currently detected controllers already matched to the existing session
 	bool DoesSessionMatchDetectedGamepads(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers) const;
 
-	// rebuild local players and session data after controllers connect/disconenct
 	void RebuildLocalPlayersAndSession(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers);
+
+	// return number of options available for one of the five categories
+	int32 GetOptionCountForCategory(int32 CategoryIndex) const;
+
+	// helper used to wrap an index around an array
+	void CycleIndexWrapped(int32& Index, int32 OptionCount, int32 Direction) const;
 };
