@@ -275,8 +275,17 @@ void UMultiplayerGameInstance::RebuildLocalPlayersAndSession(const TArray<FInput
 
 		//give each player a different starting colour for testing
 		NewPlayerData.CosmeticIndex = NewPlayerData.PlayerSlot % FMath::Max(1, CosmeticOptionCount);
+		// give each player a different starting colour when possible
+		NewPlayerData.CosmeticIndex = BodyColourOptions.IsEmpty() ? 0 : NewPlayerData.PlayerSlot % BodyColourOptions.Num();
 
-		// remember which platform user owns this session player
+		// index 0 will be our "None" cosmetic
+		NewPlayerData.HeadCosmeticIndex = 0;
+		NewPlayerData.ChestCosmeticIndex = 0;
+		NewPlayerData.LegsCosmeticIndex = 0;
+		NewPlayerData.BackCosmeticIndex = 0;
+
+		NewPlayerData.SelectedCustomisationRow = 0;
+
 		NewPlayerData.PlatformUserInternalId = PlatformUsers[Index].GetInternalId();
 
 		//remember which physical device belongs to this player
@@ -285,6 +294,7 @@ void UMultiplayerGameInstance::RebuildLocalPlayersAndSession(const TArray<FInput
 		SessionPlayers.Add(NewPlayerData);
 	}
 	// tell listening widgets the player info has changed
+
 	OnSessionPlayersChanged.Broadcast();
 }
 
@@ -316,6 +326,7 @@ int32 UMultiplayerGameInstance::GetPlayerSlotForPlatformUser(int32 PlatformUserI
 }
 
 // ready state
+
 bool UMultiplayerGameInstance::ReadyPlayer(int32 PlayerSlot)
 {
 	// make sure the requested session player exists
@@ -332,7 +343,7 @@ bool UMultiplayerGameInstance::ReadyPlayer(int32 PlayerSlot)
 		return false;
 	}
 
-	PlayerData.bReady =	true;
+	PlayerData.bReady = true;
 
 	// notify UI this players state change
 	OnSessionPlayersChanged.Broadcast();
@@ -340,15 +351,14 @@ bool UMultiplayerGameInstance::ReadyPlayer(int32 PlayerSlot)
 	return true;
 }
 
+
 bool UMultiplayerGameInstance::AreAllSessionPlayersReady() const
 {
-	// an empty session should not count as everybosy being ready 
 	if (SessionPlayers.IsEmpty())
 	{
 		return false;
 	}
 
-	// if one player is not ready the lobbby cant start
 	for (const FSessionPlayerData& PlayerData : SessionPlayers)
 	{
 		if (!PlayerData.bReady)
@@ -356,10 +366,39 @@ bool UMultiplayerGameInstance::AreAllSessionPlayersReady() const
 			return false;
 		}
 	}
+
 	return true;
 }
 
-// temp cosmetic sleection
+void UMultiplayerGameInstance::MoveCustomisationSelection(int32 PlayerSlot, int32 Direction)
+{
+	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	{
+		return;
+	}
+
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+
+	// customisation locks once the player readies
+	if (PlayerData.bReady)
+	{
+		return;
+	}
+
+	constexpr int32 CategoryCount = 5;
+
+	int32 NewRow = (PlayerData.SelectedCustomisationRow + Direction) % CategoryCount;
+
+	if (NewRow < 0)
+	{
+		NewRow += CategoryCount;
+	}
+
+	PlayerData.SelectedCustomisationRow = NewRow;
+
+	OnSessionPlayersChanged.Broadcast();
+}
+
 void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerSlot, int32 Direction)
 {
 	if (!SessionPlayers.IsValidIndex(PlayerSlot))
@@ -367,48 +406,207 @@ void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerSlot, int32 Direction)
 		return;
 	}
 
-	if (CosmeticOptionCount <= 0)
-	{
-		return;
-	}
-
 	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
 
-	// onnce the player is ready their cosmetic selection is locked
 	if (PlayerData.bReady)
 	{
 		return;
 	}
 
-	//  use modulus to allow cosmetic changes to wrap around the choices
-	int32 NewIndex = (PlayerData.CosmeticIndex + Direction) % CosmeticOptionCount;
-
-	// c++ modulus can return negative when moving backwards
-	if (NewIndex < 0)
+	switch (PlayerData.SelectedCustomisationRow)
 	{
-		NewIndex += CosmeticOptionCount;
+	case 0:
+
+		CycleIndexWrapped(PlayerData.CosmeticIndex, BodyColourOptions.Num(), Direction);
+
+		break;
+
+
+	case 1:
+
+		CycleIndexWrapped(PlayerData.HeadCosmeticIndex, HeadCosmeticOptions.Num(), Direction);
+
+		break;
+
+
+	case 2:
+
+		CycleIndexWrapped(PlayerData.ChestCosmeticIndex, ChestCosmeticOptions.Num(), Direction);
+
+		break;
+
+
+	case 3:
+
+		CycleIndexWrapped(PlayerData.LegsCosmeticIndex, LegsCosmeticOptions.Num(), Direction);
+
+		break;
+
+
+	case 4:
+
+		CycleIndexWrapped(PlayerData.BackCosmeticIndex, BackCosmeticOptions.Num(), Direction);
+
+		break;
+
+
+	default:
+		break;
 	}
 
-	PlayerData.CosmeticIndex = NewIndex;
-
-	// update any lobby widgets displaying this players choice
 	OnSessionPlayersChanged.Broadcast();
 }
 
+
+void UMultiplayerGameInstance::CycleIndexWrapped(int32& Index, int32 OptionCount, int32 Direction) const
+{
+	if (OptionCount <= 0)
+	{
+		Index = 0;
+		return;
+	}
+
+	Index = (Index + Direction) % OptionCount;
+
+	if (Index < 0)
+	{
+		Index += OptionCount;
+	}
+}
+
+
+int32 UMultiplayerGameInstance::GetOptionCountForCategory(int32 CategoryIndex) const
+{
+	switch (CategoryIndex)
+	{
+	case 0:
+		return BodyColourOptions.Num();
+
+	case 1:
+		return HeadCosmeticOptions.Num();
+
+	case 2:
+		return ChestCosmeticOptions.Num();
+
+	case 3:
+		return LegsCosmeticOptions.Num();
+
+	case 4:
+		return BackCosmeticOptions.Num();
+
+	default:
+		return 0;
+	}
+}
+
+
 int32 UMultiplayerGameInstance::GetCosmeticOptionCount() const
 {
-	return CosmeticOptionCount;
+	return BodyColourOptions.Num();
+}
+
+FText UMultiplayerGameInstance::GetCustomisationDisplayName(int32 PlayerSlot, int32 CategoryIndex) const
+{
+	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	{
+		return FText::FromString(TEXT("None"));
+	}
+
+	const FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+
+	auto ResolveName = [](const FText& DisplayName, const FName CosmeticId)
+		{
+			if (!DisplayName.IsEmpty())
+			{
+				return DisplayName;
+			}
+
+			if (!CosmeticId.IsNone())
+			{
+				return FText::FromName(CosmeticId);
+			}
+
+			return FText::FromString(TEXT("None"));
+		};
+
+	switch (CategoryIndex)
+	{
+	case 0:
+
+		if (BodyColourOptions.IsValidIndex(PlayerData.CosmeticIndex))
+		{
+			const FBodyColourOption& Option = BodyColourOptions[PlayerData.CosmeticIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
+	case 1:
+
+		if (HeadCosmeticOptions.IsValidIndex(PlayerData.HeadCosmeticIndex))
+		{
+			const FCosmeticMeshOption& Option = HeadCosmeticOptions[PlayerData.HeadCosmeticIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
+	case 2:
+
+		if (ChestCosmeticOptions.IsValidIndex(PlayerData.ChestCosmeticIndex))
+		{
+			const FCosmeticMeshOption& Option = ChestCosmeticOptions[PlayerData.ChestCosmeticIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
+	case 3:
+
+		if (LegsCosmeticOptions.IsValidIndex(PlayerData.LegsCosmeticIndex))
+		{
+			const FCosmeticMeshOption& Option = LegsCosmeticOptions[PlayerData.LegsCosmeticIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
+	case 4:
+
+		if (BackCosmeticOptions.IsValidIndex(PlayerData.BackCosmeticIndex))
+		{
+			const FCosmeticMeshOption& Option = BackCosmeticOptions[PlayerData.BackCosmeticIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
+	default:
+		break;
+	}
+
+	return FText::FromString(TEXT("None"));
 }
 
 // reset sesssoin
 void UMultiplayerGameInstance::ResetSession()
 {
-	// reset temp lobby state while keeping the exisitng session identities
 	for (FSessionPlayerData& PlayerData : SessionPlayers)
 	{
+
 		PlayerData.bReady = false;
 
-		PlayerData.CosmeticIndex = PlayerData.PlayerSlot % FMath::Max(1, CosmeticOptionCount);
+		PlayerData.SelectedCustomisationRow = 0;
 	}
 
 	OnSessionPlayersChanged.Broadcast();
