@@ -14,6 +14,13 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 
+#include "Components/CapsuleComponent.h"
+#include "Components/SphereComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/Engine.h"
+
+#include "Items/ItemBase.h"
+
 // settin default values
 APlayerCharacterBase::APlayerCharacterBase()
 {
@@ -28,12 +35,42 @@ APlayerCharacterBase::APlayerCharacterBase()
 	// because we are manually controlling the player facing direction
 	// disable this so we can control when and how the player faces
 	GetCharacterMovement()->bOrientRotationToMovement = false;
+
+	// pickup sphere: only overlaps physics bodies (items use the PhysicsActor profile = PhysicsBody object type).
+	// It ignores everything else so it never blocks movement, other players or traces
+	PickupSphere = CreateDefaultSubobject<USphereComponent>(TEXT("PickupSphere"));
+	PickupSphere->SetupAttachment(GetCapsuleComponent());
+	PickupSphere->InitSphereRadius(75.f);
+	PickupSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	PickupSphere->SetCollisionObjectType(ECC_WorldDynamic);
+	PickupSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	PickupSphere->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
+	PickupSphere->SetGenerateOverlapEvents(true);
+	PickupSphere->SetCanEverAffectNavigation(false);
 }
 
 // Called when the game starts or when spawned
 void APlayerCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// bound here rather than the constructor, which is the safer place for AddDynamic
+	PickupSphere->OnComponentBeginOverlap.AddDynamic(this, &APlayerCharacterBase::OnPickupSphereBeginOverlap);
+	PickupSphere->OnComponentEndOverlap.AddDynamic(this, &APlayerCharacterBase::OnPickupSphereEndOverlap);
+}
+
+void APlayerCharacterBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// drop the weapon where we are, otherwise it would be left floating with no collision
+	if (IsValid(HeldItem))
+	{
+		HeldItem->DetachFromHolder(HeldItem->GetActorLocation());
+	}
+	HeldItem = nullptr;
+
+	SetPromptedItem(nullptr);
+
+	Super::EndPlay(EndPlayReason);
 }
 
 // Called every frame
@@ -42,6 +79,8 @@ void APlayerCharacterBase::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	UpdateFacing(DeltaTime);
+
+	UpdateNearbyItems();
 
 	// count down any buffered jump request. the jump was feeling really unresponsive in testing hence the jump buffer
 	if (JumpBufferTimer > 0.0f)
@@ -109,6 +148,12 @@ void APlayerCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &APlayerCharacterBase::HandleJumpPressed);
 
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+	}
+
+	// interact (weapon swap)
+	if (InteractAction)
+	{
+		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APlayerCharacterBase::HandleInteractPressed);
 	}
 }
 
@@ -249,4 +294,182 @@ void APlayerCharacterBase::UpdateFacing(float DeltaTime)
 	const FRotator NewRotation = FMath::RInterpTo(GetActorRotation(), TargetRotation, DeltaTime, FacingInterpSpeed);
 
 	SetActorRotation(NewRotation);
+}
+
+
+
+void APlayerCharacterBase::OnPickupSphereBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	AItemBase* Item = Cast<AItemBase>(OtherActor);
+	if (!Item || Item->IsHeld())
+	{
+		return;
+	}
+
+	NearbyItems.AddUnique(Item);
+
+	// if no weapon held, touching one equips it instantly
+	// if a weapon is held, it just stays in NearbyItems and the swap prompt shows (see UpdateNearbyItems)
+	if (!HeldItem)
+	{
+		EquipItem(Item);
+	}
+}
+
+void APlayerCharacterBase::OnPickupSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (AItemBase* Item = Cast<AItemBase>(OtherActor))
+	{
+		NearbyItems.Remove(Item);
+	}
+}
+
+void APlayerCharacterBase::HandleInteractPressed()
+{
+	// since pickup while empty handed is automatic, interact only matters when swapping
+	if (!HeldItem)
+	{
+		return;
+	}
+
+	if (AItemBase* Target = FindClosestNearbyItem())
+	{
+		SwapToItem(Target);
+	}
+}
+
+bool APlayerCharacterBase::EquipItem(AItemBase* Item)
+{
+	if (!IsValid(Item) || Item->IsHeld())
+	{
+		return false;
+	}
+
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	const bool bHasSocket = CharacterMesh && CharacterMesh->DoesSocketExist(WeaponSocketName);
+
+	if (bHasSocket)
+	{
+		Item->AttachToHolder(this, CharacterMesh, WeaponSocketName);
+	}
+	else
+	{
+		// no socket yet, hold it at an offset from the capsule.
+		// since the capsule rotates with UpdateFacing, the weapon still points where the player faces
+		Item->AttachToHolder(this, GetCapsuleComponent(), NAME_None);
+		Item->SetActorRelativeLocation(HeldItemFallbackOffset);
+	}
+
+	HeldItem = Item;
+	NearbyItems.Remove(Item);
+	return true;
+}
+
+void APlayerCharacterBase::SwapToItem(AItemBase* NewItem)
+{
+	AItemBase* OldItem = HeldItem;
+	if (!IsValid(NewItem) || NewItem == OldItem)
+	{
+		return;
+	}
+
+	// the old weapon is dropped where the new one was lying, which we know is a clear spot
+	const FVector DropLocation = NewItem->GetActorLocation() + FVector(0.f, 0.f, DropHeightOffset);
+
+	// IMPORTANT! equip the new weapon BEFORE dropping the old one.
+	// the dropped weapon lands inside our pickup sphere straight away, if we were
+	// empty handed at that moment it would be auto picked up again (this was a pain in my ass)
+	if (!EquipItem(NewItem))
+	{
+		return;
+	}
+
+	if (IsValid(OldItem))
+	{
+		OldItem->DetachFromHolder(DropLocation);
+
+		// even if the overlap event is late, make sure the prompt appears for swapping on the now dropped weapon.
+		NearbyItems.AddUnique(OldItem);
+	}
+}
+
+void APlayerCharacterBase::UpdateNearbyItems()
+{
+	// held weapon destroyed (future proofing for shield breaking, for example), treat as empty handed
+	if (HeldItem && !IsValid(HeldItem))
+	{
+		HeldItem = nullptr;
+	}
+
+	AItemBase* Closest = FindClosestNearbyItem();
+
+	// if we are empty handed but already standing on a weapon, no new overlap event will fire. pickup weapon
+	if (!HeldItem && Closest)
+	{
+		EquipItem(Closest);
+		Closest = FindClosestNearbyItem();
+	}
+
+	// only prompt when there is something to swap
+	SetPromptedItem(HeldItem ? Closest : nullptr);
+}
+
+AItemBase* APlayerCharacterBase::FindClosestNearbyItem()
+{
+	// drop anything destroyed or picked up by another player since it entered range
+	NearbyItems.RemoveAll([](const TWeakObjectPtr<AItemBase>& Item)
+	{
+		return !Item.IsValid() || Item->IsHeld();
+	});
+
+	AItemBase* Closest = nullptr;
+	float ClosestDistSq = TNumericLimits<float>::Max();
+	const FVector MyLocation = GetActorLocation();
+
+	for (const TWeakObjectPtr<AItemBase>& WeakItem : NearbyItems)
+	{
+		AItemBase* Item = WeakItem.Get();
+		const float DistSq = FVector::DistSquared(MyLocation, Item->GetActorLocation());
+		if (DistSq < ClosestDistSq)
+		{
+			ClosestDistSq = DistSq;
+			Closest = Item;
+		}
+	}
+
+	return Closest;
+}
+
+void APlayerCharacterBase::SetPromptedItem(AItemBase* Item)
+{
+	if (PromptedItem.Get() == Item)
+	{
+		return;
+	}
+
+	PromptedItem = Item;
+	OnSwapPromptChanged(Item != nullptr, Item);
+
+#if !UE_BUILD_SHIPPING
+	// temporary prompt until a UI widget is hooked up to OnSwapPromptChanged.
+	// one message per player so each player prompt replaces only their own line
+	if (bShowDebugSwapPrompt && GEngine)
+	{
+		const uint64 MessageKey = static_cast<uint64>(GetUniqueID());
+		if (Item)
+		{
+			const FString Message = FString::Printf(TEXT("%s: press Interact to swap %s for %s"),
+				*GetActorNameOrLabel(),
+				HeldItem ? *HeldItem->GetItemDisplayName().ToString() : TEXT("nothing"),
+				*Item->GetItemDisplayName().ToString());
+			GEngine->AddOnScreenDebugMessage(MessageKey, 9999.f, FColor::Yellow, Message);
+		}
+		else
+		{
+			GEngine->RemoveOnScreenDebugMessage(MessageKey);
+		}
+	}
+#endif
 }

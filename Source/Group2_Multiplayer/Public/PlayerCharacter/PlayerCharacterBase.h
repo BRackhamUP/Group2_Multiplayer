@@ -7,6 +7,9 @@
 
 class UInputAction;
 class UInputMappingContext;
+class USphereComponent;
+class UPrimitiveComponent;
+class AItemBase;
 
 UCLASS()
 class GROUP2_MULTIPLAYER_API APlayerCharacterBase : public ACharacter
@@ -20,6 +23,9 @@ public:
 protected:
 	// called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	// drop anything we're holding if this character is removed (e.g. falls out of the arena)
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// the input mapping context assigned in the blueprint inspector panel
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -37,6 +43,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> JumpAction;
 
+	// interact input - swaps the held weapon for the closest one on the floor
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> InteractAction;
+
 
 	// minimum sitck magnitude required before facing input is accepeted
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement Facing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -50,6 +60,41 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement Jump",
 		meta = (ClampMin = "0.0"))
 	float JumpBufferTime = 0.12f;
+
+
+
+
+
+
+	// items touching this sphere are picked up (empty handed) or offered as a swap (holding a weapon)
+	// change the radius in the BP to tune how close "touching" is
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item Pickup")
+	TObjectPtr<USphereComponent> PickupSphere;
+
+	// socket on the character skeletal mesh that the weapon attaches to
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
+	FName WeaponSocketName = TEXT("WeaponSocket");
+
+	// if the mesh has no WeaponSocket (our capsule), weapon is held at this offset from the capsule
+	// (X = forward, Y = right, Z = up)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
+	FVector HeldItemFallbackOffset = FVector(50.f, 35.f, 0.f);
+
+	// how far above the swapped weapons old position the dropped weapon is placed (to stop colliding on swap)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup", meta = (Units = "cm"))
+	float DropHeightOffset = 20.f;
+
+	// shows the swap prompt as on screen debug text until a proper UI widget exists
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
+	bool bShowDebugSwapPrompt = true;
+
+	// called when the swap prompt should appear/disappear (or point at a different item).
+	// build the actual prompt UI in BP from this event
+	UFUNCTION(BlueprintImplementableEvent, Category = "Item Pickup")
+	void OnSwapPromptChanged(bool bVisible, AItemBase* PromptItem);
+
+
+
 
 
 	// handle left stick movement
@@ -88,4 +133,48 @@ public:
 	// called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
+	UFUNCTION(BlueprintPure, Category = "Item Pickup")
+	AItemBase* GetHeldItem() const { return HeldItem; }
+
+	UFUNCTION(BlueprintPure, Category = "Item Pickup")
+	bool IsHoldingItem() const { return HeldItem != nullptr; }
+
+private:
+	// these must be UFUNCTIONs so they can be bound with AddDynamic
+	UFUNCTION()
+	void OnPickupSphereBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnPickupSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	// interact pressed, swap if holding a weapon and one is in range
+	void HandleInteractPressed();
+
+	// attach item to this character. This does NOT check HeldItem because callers decide when it is allowed
+	bool EquipItem(AItemBase* Item);
+
+	// equip new item and drop the current weapon where new item was
+	void SwapToItem(AItemBase* NewItem);
+
+	// every tick, auto pickup when empty handed, and keep the swap prompt up to date
+	void UpdateNearbyItems();
+
+	// closest valid item in range. remove any destroyed/held items from NearbyItems
+	AItemBase* FindClosestNearbyItem();
+
+	// only fires the prompt event when the prompted item actually changes
+	void SetPromptedItem(AItemBase* Item);
+
+	// the weapon in this players hand (only 1 at a time)
+	UPROPERTY(Transient)
+	TObjectPtr<AItemBase> HeldItem;
+
+	// items currently overlapping the pickup sphere.
+	// weak pointer because they may be destroyed or picked up by someone else
+	TArray<TWeakObjectPtr<AItemBase>> NearbyItems;
+
+	// item that the swap prompt is currently showing, null means no prompt showing
+	TWeakObjectPtr<AItemBase> PromptedItem;
 };
