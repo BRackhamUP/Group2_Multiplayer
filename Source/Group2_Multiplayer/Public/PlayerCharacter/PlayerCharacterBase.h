@@ -43,7 +43,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> JumpAction;
 
-	// interact input - swaps the held weapon for the closest one on the floor
+	// interact input, picks up the closest weapon in range (swapping it for the held one if needed)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
 
@@ -66,8 +66,8 @@ protected:
 
 
 
-	// items touching this sphere are picked up (empty handed) or offered as a swap (holding a weapon)
-	// change the radius in the BP to tune how close "touching" is
+	// items inside this sphere can be picked up with interact (or swapped if a weapon is already held)
+	// change the radius in the BP to tune pickup range
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item Pickup")
 	TObjectPtr<USphereComponent> PickupSphere;
 
@@ -84,14 +84,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup", meta = (Units = "cm"))
 	float DropHeightOffset = 20.f;
 
-	// shows the swap prompt as on screen debug text until a proper UI widget exists
+	// shows the pickup/swap prompt as on screen debug text until a proper UI widget exists
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
-	bool bShowDebugSwapPrompt = true;
+	bool bShowDebugPickupPrompt = true;
 
-	// called when the swap prompt should appear/disappear (or point at a different item).
+	// called when the pickup prompt should appear/disappear (or point at a different item)
+	// use GetHeldItem to decide between pickup and swap
 	// build the actual prompt UI in BP from this event
 	UFUNCTION(BlueprintImplementableEvent, Category = "Item Pickup")
-	void OnSwapPromptChanged(bool bVisible, AItemBase* PromptItem);
+	void OnPickupPromptChanged(bool bVisible, AItemBase* PromptItem);
 
 
 
@@ -149,7 +150,7 @@ private:
 	void OnPickupSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-	// interact pressed, swap if holding a weapon and one is in range
+	// interact pressed, pick up the closest weapon in range (swapping if one is already held)
 	void HandleInteractPressed();
 
 	// attach item to this character. This does NOT check HeldItem because callers decide when it is allowed
@@ -158,13 +159,13 @@ private:
 	// equip new item and drop the current weapon where new item was
 	void SwapToItem(AItemBase* NewItem);
 
-	// every tick, auto pickup when empty handed, and keep the swap prompt up to date
+	// every tick, keep the pickup prompt pointing at the closest weapon in range
 	void UpdateNearbyItems();
 
 	// closest valid item in range. remove any destroyed/held items from NearbyItems
 	AItemBase* FindClosestNearbyItem();
 
-	// only fires the prompt event when the prompted item actually changes
+	// only fires the prompt event when the prompted item or the held item actually changes
 	void SetPromptedItem(AItemBase* Item);
 
 	// the weapon in this players hand (only 1 at a time)
@@ -175,6 +176,9 @@ private:
 	// weak pointer because they may be destroyed or picked up by someone else
 	TArray<TWeakObjectPtr<AItemBase>> NearbyItems;
 
-	// item that the swap prompt is currently showing, null means no prompt showing
+	// item that the pickup prompt is currently showing, null means no prompt showing
 	TWeakObjectPtr<AItemBase> PromptedItem;
+
+	// what we were holding when the prompt last updated, so pick up / swap wording stays correct
+	TWeakObjectPtr<AItemBase> PromptedHeldItem;
 };

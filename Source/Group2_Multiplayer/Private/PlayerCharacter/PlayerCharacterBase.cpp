@@ -150,7 +150,7 @@ void APlayerCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	}
 
-	// interact (weapon swap)
+	// interact (weapon pickup / swap)
 	if (InteractAction)
 	{
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APlayerCharacterBase::HandleInteractPressed);
@@ -307,14 +307,8 @@ void APlayerCharacterBase::OnPickupSphereBeginOverlap(UPrimitiveComponent* Overl
 		return;
 	}
 
+	// in range only, nothing is picked up until interact is pressed (see UpdateNearbyItems for the prompt)
 	NearbyItems.AddUnique(Item);
-
-	// if no weapon held, touching one equips it instantly
-	// if a weapon is held, it just stays in NearbyItems and the swap prompt shows (see UpdateNearbyItems)
-	if (!HeldItem)
-	{
-		EquipItem(Item);
-	}
 }
 
 void APlayerCharacterBase::OnPickupSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
@@ -328,15 +322,20 @@ void APlayerCharacterBase::OnPickupSphereEndOverlap(UPrimitiveComponent* Overlap
 
 void APlayerCharacterBase::HandleInteractPressed()
 {
-	// since pickup while empty handed is automatic, interact only matters when swapping
-	if (!HeldItem)
+	AItemBase* Target = FindClosestNearbyItem();
+	if (!Target)
 	{
 		return;
 	}
 
-	if (AItemBase* Target = FindClosestNearbyItem())
+	// holding a weapon = swap, empty handed = pickup
+	if (HeldItem)
 	{
 		SwapToItem(Target);
+	}
+	else
+	{
+		EquipItem(Target);
 	}
 }
 
@@ -378,9 +377,8 @@ void APlayerCharacterBase::SwapToItem(AItemBase* NewItem)
 	// the old weapon is dropped where the new one was lying, which we know is a clear spot
 	const FVector DropLocation = NewItem->GetActorLocation() + FVector(0.f, 0.f, DropHeightOffset);
 
-	// IMPORTANT! equip the new weapon BEFORE dropping the old one.
-	// the dropped weapon lands inside our pickup sphere straight away, if we were
-	// empty handed at that moment it would be auto picked up again (this was a pain in my ass)
+	// equip first so if the new weapon cant be taken (another player grabbed it
+	// this frame) we keep the one we have instead of ending up empty handed
 	if (!EquipItem(NewItem))
 	{
 		return;
@@ -390,7 +388,7 @@ void APlayerCharacterBase::SwapToItem(AItemBase* NewItem)
 	{
 		OldItem->DetachFromHolder(DropLocation);
 
-		// even if the overlap event is late, make sure the prompt appears for swapping on the now dropped weapon.
+		// even if the overlap event is late, make sure the prompt appears for swapping back to the dropped weapon
 		NearbyItems.AddUnique(OldItem);
 	}
 }
@@ -403,17 +401,8 @@ void APlayerCharacterBase::UpdateNearbyItems()
 		HeldItem = nullptr;
 	}
 
-	AItemBase* Closest = FindClosestNearbyItem();
-
-	// if we are empty handed but already standing on a weapon, no new overlap event will fire. pickup weapon
-	if (!HeldItem && Closest)
-	{
-		EquipItem(Closest);
-		Closest = FindClosestNearbyItem();
-	}
-
-	// only prompt when there is something to swap
-	SetPromptedItem(HeldItem ? Closest : nullptr);
+	// prompt for the closest weapon in range, held or not (null hides the prompt)
+	SetPromptedItem(FindClosestNearbyItem());
 }
 
 AItemBase* APlayerCharacterBase::FindClosestNearbyItem()
@@ -444,26 +433,31 @@ AItemBase* APlayerCharacterBase::FindClosestNearbyItem()
 
 void APlayerCharacterBase::SetPromptedItem(AItemBase* Item)
 {
-	if (PromptedItem.Get() == Item)
+	if (PromptedItem.Get() == Item && PromptedHeldItem.Get() == HeldItem)
 	{
 		return;
 	}
 
 	PromptedItem = Item;
-	OnSwapPromptChanged(Item != nullptr, Item);
+	PromptedHeldItem = HeldItem;
+	OnPickupPromptChanged(Item != nullptr, Item);
 
 #if !UE_BUILD_SHIPPING
-	// temporary prompt until a UI widget is hooked up to OnSwapPromptChanged.
+	// temporary prompt until a UI widget is hooked up to OnPickupPromptChanged.
 	// one message per player so each player prompt replaces only their own line
-	if (bShowDebugSwapPrompt && GEngine)
+	if (bShowDebugPickupPrompt && GEngine)
 	{
 		const uint64 MessageKey = static_cast<uint64>(GetUniqueID());
 		if (Item)
 		{
-			const FString Message = FString::Printf(TEXT("%s: press Interact to swap %s for %s"),
-				*GetActorNameOrLabel(),
-				HeldItem ? *HeldItem->GetItemDisplayName().ToString() : TEXT("nothing"),
-				*Item->GetItemDisplayName().ToString());
+			const FString Message = HeldItem
+				? FString::Printf(TEXT("%s: press Interact to swap %s for %s"),
+					*GetActorNameOrLabel(),
+					*HeldItem->GetItemDisplayName().ToString(),
+					*Item->GetItemDisplayName().ToString())
+				: FString::Printf(TEXT("%s: press Interact to pick up %s"),
+					*GetActorNameOrLabel(),
+					*Item->GetItemDisplayName().ToString());
 			GEngine->AddOnScreenDebugMessage(MessageKey, 9999.f, FColor::Yellow, Message);
 		}
 		else
