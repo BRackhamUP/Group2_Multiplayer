@@ -54,7 +54,7 @@ void AItemSpawnManager::StartSpawning()
 	}
 	else if (InitialSpawnDelay > 0.f)
 	{
-		// After a delay
+		// After a delay, spawn
 		TimerManager.SetTimer(SpawnTimerHandle, this, &AItemSpawnManager::HandleSpawnTimer,
 			InitialSpawnDelay, false);
 	}

@@ -59,6 +59,33 @@ bool AItemSpawnPoint::CanSpawnItem(TSubclassOf<AItemBase> ItemClass) const
 	return false;
 }
 
+void AItemSpawnPoint::SetSpawnedItem(AItemBase* Item)
+{
+	// Stop listening to any previous item
+	if (AItemBase* OldItem = SpawnedItem.Get())
+	{
+		OldItem->OnPickedUp.RemoveDynamic(this, &AItemSpawnPoint::HandleSpawnedItemPickedUp);
+	}
+
+	SpawnedItem = Item;
+
+	if (Item)
+	{
+		Item->OnPickedUp.AddUniqueDynamic(this, &AItemSpawnPoint::HandleSpawnedItemPickedUp);
+	}
+}
+
+void AItemSpawnPoint::HandleSpawnedItemPickedUp(AItemBase* Item, ACharacter* Holder)
+{
+	// Picked up = gone from this point, so the manager can spawn here again.
+	// If the item is later dropped somewhere else it no longer belongs to this point
+	if (Item && Item == SpawnedItem.Get())
+	{
+		Item->OnPickedUp.RemoveDynamic(this, &AItemSpawnPoint::HandleSpawnedItemPickedUp);
+		SpawnedItem.Reset();
+	}
+}
+
 void AItemSpawnPoint::SetSpawnPointEnabled(bool bNewEnabled)
 {
 	bEnabled = bNewEnabled;

@@ -5,6 +5,7 @@
 #include "ItemSpawnPoint.generated.h"
 
 class AItemBase;
+class ACharacter;
 class UArrowComponent;
 class UBillboardComponent;
 
@@ -32,7 +33,8 @@ public:
 
 	// C++ ONLY: ONLY the manager should claim a spawn point. Exposing
 	// this to blueprint seems to desync the manager, do not touch please lol
-	void SetSpawnedItem(AItemBase* Item) { SpawnedItem = Item; }
+	// Also listens for the item being picked up so the point frees itself
+	void SetSpawnedItem(AItemBase* Item);
 
 	// Where the item should appear (this actors transform plus a height offset)
 	FTransform GetSpawnTransform() const;
@@ -60,6 +62,10 @@ private:
 	// destroyed (lava), this automatically becomes
 	// null and the point is free again
 	TWeakObjectPtr<AItemBase> SpawnedItem;
+
+	// Bound to the spawned items OnPickedUp. Must be a UFUNCTION for AddDynamic
+	UFUNCTION()
+	void HandleSpawnedItemPickedUp(AItemBase* Item, ACharacter* Holder);
 
 #if WITH_EDITORONLY_DATA
 	// Editor only visuals for designers placing points
