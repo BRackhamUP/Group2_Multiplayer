@@ -47,6 +47,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
 
+	// drop input, drops the held weapon in front of the player
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> DropAction;
+
 
 	// minimum sitck magnitude required before facing input is accepeted
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement Facing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -83,6 +87,11 @@ protected:
 	// how far above the swapped weapons old position the dropped weapon is placed (to stop colliding on swap)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup", meta = (Units = "cm"))
 	float DropHeightOffset = 20.f;
+
+	// how far in front of the player a weapon lands when dropped with the drop input.
+	// pulled closer automatically if a wall is in the way
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup", meta = (ClampMin = "0.0", Units = "cm"))
+	float DropForwardDistance = 80.f;
 
 	// shows the pickup/swap prompt as on screen debug text until a proper UI widget exists
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
@@ -152,6 +161,9 @@ private:
 
 	// interact pressed, pick up the closest weapon in range (swapping if one is already held)
 	void HandleInteractPressed();
+
+	// drop pressed, drop the held weapon in front of the player
+	void HandleDropPressed();
 
 	// attach item to this character. This does NOT check HeldItem because callers decide when it is allowed
 	bool EquipItem(AItemBase* Item);

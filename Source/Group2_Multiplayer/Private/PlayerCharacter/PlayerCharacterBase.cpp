@@ -155,6 +155,12 @@ void APlayerCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	{
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APlayerCharacterBase::HandleInteractPressed);
 	}
+
+	// drop held weapon
+	if (DropAction)
+	{
+		EnhancedInputComponent->BindAction(DropAction, ETriggerEvent::Started, this, &APlayerCharacterBase::HandleDropPressed);
+	}
 }
 
 
@@ -337,6 +343,36 @@ void APlayerCharacterBase::HandleInteractPressed()
 	{
 		EquipItem(Target);
 	}
+}
+
+void APlayerCharacterBase::HandleDropPressed()
+{
+	if (!IsValid(HeldItem))
+	{
+		return;
+	}
+
+	AItemBase* ItemToDrop = HeldItem;
+
+	// aim to drop it a short way in front of us, at capsule height so it falls to the floor
+	const FVector Start = GetActorLocation();
+	const FVector Forward = GetActorForwardVector();
+	FVector DropLocation = Start + Forward * DropForwardDistance;
+
+	// if a wall is in the way, drop it just in front of the wall instead of inside it
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(WeaponDrop), false, this);
+	Params.AddIgnoredActor(ItemToDrop);
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, DropLocation, ECC_Visibility, Params))
+	{
+		DropLocation = Hit.Location - Forward * 30.f;
+	}
+
+	HeldItem = nullptr;
+	ItemToDrop->DetachFromHolder(DropLocation);
+
+	// it lands in our pickup range, so make sure the pickup prompt appears straight away
+	NearbyItems.AddUnique(ItemToDrop);
 }
 
 bool APlayerCharacterBase::EquipItem(AItemBase* Item)
