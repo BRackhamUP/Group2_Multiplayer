@@ -19,6 +19,9 @@ AItemBase::AItemBase()
 	// static meshes do not generate overlap events by default.
 	// the player pickup sphere needs them to detect items, please do not edit or remove this.
 	Mesh->SetGenerateOverlapEvents(true);
+
+	// for player ring, keep this otherwise the decal paints over the weapons lol
+	Mesh->SetReceivesDecals(false);
 }
 
 void AItemBase::BeginPlay()
