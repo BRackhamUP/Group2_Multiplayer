@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -8,6 +6,7 @@
 
 
 class UStaticMesh;
+class AController;
 
 /*
 one available body colour
@@ -76,14 +75,13 @@ struct FSessionPlayerData
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	bool bReady = false;
 
-	/*
-	current body colour
 
-	keeping the existing CosmeticIndex name avoids unnecessarily breaking
-	the existing Blueprint logic - it now specifically represents colour
-	*/
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 CosmeticIndex = 0;
+
+	// unique per player, two players can never have the same ring colour
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 RingColourIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 HeadCosmeticIndex = 0;
@@ -168,6 +166,41 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation")
 	FText GetCustomisationDisplayName(int32 PlayerSlot, int32 CategoryIndex) const;
 
+	/*
+	set player ring colour directly
+	returns false if the slot/colour is invalid, the player has readied up,
+	or another player already has that colour
+	*/
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation|Ring")
+	bool SetRingColour(int32 PlayerSlot, int32 ColourIndex);
+
+	// move to the next or previous ring colour, skipping colours other players have
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation|Ring")
+	void CycleRingColour(int32 PlayerSlot, int32 Direction);
+
+	// true if a player OTHER than IgnorePlayerSlot has this colour (use to grey out picked colours)
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
+	bool IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerSlot = -1) const;
+
+	// players current index into RingColourOptions
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
+	int32 GetRingColourIndex(int32 PlayerSlot) const;
+
+	/*
+	the actual colour to show for a player
+	uses slots default colour if you are testing
+	*/
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
+	FLinearColor GetRingColourForPlayerSlot(int32 PlayerSlot) const;
+
+	/*
+	which player slot a controller belongs to
+	matches by platform user like the lobby does, falling back to local player order
+	when there is no lobby session
+	*/
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Session")
+	int32 GetPlayerSlotForController(const AController* Controller) const;
+
 
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Session")
 	void ResetSession();
@@ -179,6 +212,10 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
 	TArray<FBodyColourOption> BodyColourOptions;
+
+	// the preset ring colours (one per player, so 4)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FBodyColourOption> RingColourOptions;
 
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
