@@ -19,7 +19,11 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 
+#include "Components/DecalComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+
 #include "Items/ItemBase.h"
+#include "Multiplayer/MultiplayerGameInstance.h"
 
 // settin default values
 APlayerCharacterBase::APlayerCharacterBase()
@@ -47,6 +51,14 @@ APlayerCharacterBase::APlayerCharacterBase()
 	PickupSphere->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
 	PickupSphere->SetGenerateOverlapEvents(true);
 	PickupSphere->SetCanEverAffectNavigation(false);
+
+	// ring decal: pitched down so it projects onto the floor
+	// DecalSize = (projection depth, radius, radius) depth reaches well below the capsule
+	// so the ring stays on the floor while jumping
+	RingDecal = CreateDefaultSubobject<UDecalComponent>(TEXT("RingDecal"));
+	RingDecal->SetupAttachment(GetCapsuleComponent());
+	RingDecal->SetRelativeRotation(FRotator(-90.f, 0.f, 0.f));
+	RingDecal->DecalSize = FVector(300.f, 60.f, 60.f);
 }
 
 // Called when the game starts or when spawned
@@ -57,6 +69,24 @@ void APlayerCharacterBase::BeginPlay()
 	// bound here rather than the constructor, which is the safer place for AddDynamic
 	PickupSphere->OnComponentBeginOverlap.AddDynamic(this, &APlayerCharacterBase::OnPickupSphereBeginOverlap);
 	PickupSphere->OnComponentEndOverlap.AddDynamic(this, &APlayerCharacterBase::OnPickupSphereEndOverlap);
+
+	// stop rings from painting onto character meshes
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+	for (UPrimitiveComponent* Primitive : PrimitiveComponents)
+	{
+		Primitive->SetReceivesDecals(false);
+	}
+
+	// apply the current colour
+	SetRingColour(RingColour);
+}
+
+void APlayerCharacterBase::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	ApplyRingColourFromSession();
 }
 
 void APlayerCharacterBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -300,6 +330,40 @@ void APlayerCharacterBase::UpdateFacing(float DeltaTime)
 	const FRotator NewRotation = FMath::RInterpTo(GetActorRotation(), TargetRotation, DeltaTime, FacingInterpSpeed);
 
 	SetActorRotation(NewRotation);
+}
+
+
+
+
+void APlayerCharacterBase::SetRingColour(FLinearColor NewColour)
+{
+	RingColour = NewColour;
+
+	// make our own copy of the ring material the first time, so changing
+	// our colour does not change every other players ring too
+	if (!RingMaterialInstance && RingDecal && RingDecal->GetDecalMaterial())
+	{
+		RingMaterialInstance = RingDecal->CreateDynamicMaterialInstance();
+	}
+
+	if (RingMaterialInstance)
+	{
+		RingMaterialInstance->SetVectorParameterValue(RingColourParameterName, RingColour);
+	}
+}
+
+void APlayerCharacterBase::ApplyRingColourFromSession()
+{
+	const UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
+
+	if (!MultiplayerGameInstance)
+	{
+		return;
+	}
+
+	const int32 PlayerSlot = MultiplayerGameInstance->GetPlayerSlotForController(GetController());
+
+	SetRingColour(MultiplayerGameInstance->GetRingColourForPlayerSlot(PlayerSlot));
 }
 
 

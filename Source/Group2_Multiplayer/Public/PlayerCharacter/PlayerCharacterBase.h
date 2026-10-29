@@ -10,6 +10,8 @@ class UInputMappingContext;
 class USphereComponent;
 class UPrimitiveComponent;
 class AItemBase;
+class UDecalComponent;
+class UMaterialInstanceDynamic;
 
 UCLASS()
 class GROUP2_MULTIPLAYER_API APlayerCharacterBase : public ACharacter
@@ -26,6 +28,19 @@ protected:
 
 	// drop anything we're holding if this character is removed (e.g. falls out of the arena)
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	// once a player controls this character we know which player it is, so colour the ring
+	virtual void PossessedBy(AController* NewController) override;
+
+
+
+	// coloured ring projected onto the floor under the player
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player Ring")
+	TObjectPtr<UDecalComponent> RingDecal;
+
+	// name of the colour parameter inside the ring material
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Ring")
+	FName RingColourParameterName = TEXT("RingColour");
 
 	// the input mapping context assigned in the blueprint inspector panel
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -149,6 +164,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item Pickup")
 	bool IsHoldingItem() const { return HeldItem != nullptr; }
 
+	// set the ring to any colour (for the preview in customization screen)
+	UFUNCTION(BlueprintCallable, Category = "Player Ring")
+	void SetRingColour(FLinearColor NewColour);
+
+	UFUNCTION(BlueprintPure, Category = "Player Ring")
+	FLinearColor GetRingColour() const { return RingColour; }
+
+	// look up this players chosen colour in the game instance and apply it
+	// called automatically on possess
+	UFUNCTION(BlueprintCallable, Category = "Player Ring")
+	void ApplyRingColourFromSession();
+
 private:
 	// these must be UFUNCTIONs so they can be bound with AddDynamic
 	UFUNCTION()
@@ -193,4 +220,10 @@ private:
 
 	// what we were holding when the prompt last updated, so pick up / swap wording stays correct
 	TWeakObjectPtr<AItemBase> PromptedHeldItem;
+
+	// a copy of the ring material for each character
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> RingMaterialInstance;
+
+	FLinearColor RingColour = FLinearColor::White;
 };

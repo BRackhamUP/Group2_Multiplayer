@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #include "Multiplayer/MultiplayerGameInstance.h"
 
 #include "Engine/Engine.h"
@@ -252,6 +250,9 @@ void UMultiplayerGameInstance::RebuildLocalPlayersAndSession(const TArray<FInput
 		// give each player a different starting colour when possible
 		NewPlayerData.CosmeticIndex = BodyColourOptions.IsEmpty() ? 0 : NewPlayerData.PlayerSlot % BodyColourOptions.Num();
 
+		// give each player a different starting ring colour when possible
+		NewPlayerData.RingColourIndex = RingColourOptions.IsEmpty() ? 0 : NewPlayerData.PlayerSlot % RingColourOptions.Num();
+
 		// index 0 will be our "None" cosmetic
 		NewPlayerData.HeadCosmeticIndex = 0;
 		NewPlayerData.ChestCosmeticIndex = 0;
@@ -351,7 +352,8 @@ void UMultiplayerGameInstance::MoveCustomisationSelection(int32 PlayerSlot, int3
 		return;
 	}
 
-	constexpr int32 CategoryCount = 5;
+	// 0 body colour, 1 head, 2 chest, 3 legs, 4 back, 5 ring colour
+	constexpr int32 CategoryCount = 6;
 
 	int32 NewRow = (PlayerData.SelectedCustomisationRow + Direction) % CategoryCount;
 
@@ -416,6 +418,13 @@ void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerSlot, int32 Direction)
 		break;
 
 
+	case 5:
+
+		CycleRingColour(PlayerSlot, Direction);
+
+		return;
+
+
 	default:
 		break;
 	}
@@ -459,6 +468,9 @@ int32 UMultiplayerGameInstance::GetOptionCountForCategory(int32 CategoryIndex) c
 
 	case 4:
 		return BackCosmeticOptions.Num();
+
+	case 5:
+		return RingColourOptions.Num();
 
 	default:
 		return 0;
@@ -557,11 +569,149 @@ FText UMultiplayerGameInstance::GetCustomisationDisplayName(int32 PlayerSlot, in
 		break;
 
 
+	case 5:
+
+		if (RingColourOptions.IsValidIndex(PlayerData.RingColourIndex))
+		{
+			const FBodyColourOption& Option = RingColourOptions[PlayerData.RingColourIndex];
+
+			return ResolveName(Option.DisplayName, Option.CosmeticId);
+		}
+
+		break;
+
+
 	default:
 		break;
 	}
 
 	return FText::FromString(TEXT("None"));
+}
+
+
+// player ring colour
+
+bool UMultiplayerGameInstance::SetRingColour(int32 PlayerSlot, int32 ColourIndex)
+{
+	if (!SessionPlayers.IsValidIndex(PlayerSlot) || !RingColourOptions.IsValidIndex(ColourIndex))
+	{
+		return false;
+	}
+
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+
+	// customisation locks once the player readies
+	if (PlayerData.bReady || IsRingColourTaken(ColourIndex, PlayerSlot))
+	{
+		return false;
+	}
+
+	PlayerData.RingColourIndex = ColourIndex;
+
+	OnSessionPlayersChanged.Broadcast();
+
+	return true;
+}
+
+void UMultiplayerGameInstance::CycleRingColour(int32 PlayerSlot, int32 Direction)
+{
+	if (!SessionPlayers.IsValidIndex(PlayerSlot) || RingColourOptions.IsEmpty() || Direction == 0)
+	{
+		return;
+	}
+
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+
+	if (PlayerData.bReady)
+	{
+		return;
+	}
+
+	const int32 OptionCount = RingColourOptions.Num();
+	const int32 Step = Direction > 0 ? 1 : -1;
+	int32 Candidate = PlayerData.RingColourIndex;
+
+	// cycle colours until we find one nobody else has
+	// if every other colour is taken nothing changes (this should never happen anyway)
+	for (int32 Attempt = 0; Attempt < OptionCount; ++Attempt)
+	{
+		CycleIndexWrapped(Candidate, OptionCount, Step);
+
+		if (!IsRingColourTaken(Candidate, PlayerSlot))
+		{
+			PlayerData.RingColourIndex = Candidate;
+
+			OnSessionPlayersChanged.Broadcast();
+
+			return;
+		}
+	}
+}
+
+bool UMultiplayerGameInstance::IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerSlot) const
+{
+	for (const FSessionPlayerData& PlayerData : SessionPlayers)
+	{
+		if (PlayerData.PlayerSlot != IgnorePlayerSlot && PlayerData.RingColourIndex == ColourIndex)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+int32 UMultiplayerGameInstance::GetRingColourIndex(int32 PlayerSlot) const
+{
+	return SessionPlayers.IsValidIndex(PlayerSlot) ? SessionPlayers[PlayerSlot].RingColourIndex : INDEX_NONE;
+}
+
+FLinearColor UMultiplayerGameInstance::GetRingColourForPlayerSlot(int32 PlayerSlot) const
+{
+	if (RingColourOptions.IsEmpty())
+	{
+		return FLinearColor::White;
+	}
+
+	// chosen colour from the lobby if there is one (there should always be one)
+	if (SessionPlayers.IsValidIndex(PlayerSlot) && RingColourOptions.IsValidIndex(SessionPlayers[PlayerSlot].RingColourIndex))
+	{
+		return RingColourOptions[SessionPlayers[PlayerSlot].RingColourIndex].Colour;
+	}
+
+	// if there is no session (testing) then use slots default colour
+	return RingColourOptions[FMath::Max(PlayerSlot, 0) % RingColourOptions.Num()].Colour;
+}
+
+int32 UMultiplayerGameInstance::GetPlayerSlotForController(const AController* Controller) const
+{
+	const APlayerController* PlayerController = Cast<APlayerController>(Controller);
+
+	if (!PlayerController)
+	{
+		return INDEX_NONE;
+	}
+
+	// same matching the lobby uses
+	const FPlatformUserId PlatformUserId = PlayerController->GetPlatformUserId();
+
+	if (PlatformUserId.IsValid())
+	{
+		const int32 PlayerSlot = GetPlayerSlotForPlatformUser(PlatformUserId.GetInternalId());
+
+		if (PlayerSlot != INDEX_NONE)
+		{
+			return PlayerSlot;
+		}
+	}
+
+	// no lobby session - fall back to the order unreal created the local players in
+	if (const ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
+	{
+		return GetLocalPlayers().IndexOfByKey(LocalPlayer);
+	}
+
+	return INDEX_NONE;
 }
 
 void UMultiplayerGameInstance::ResetSession()
