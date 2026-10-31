@@ -361,9 +361,9 @@ void APlayerCharacterBase::ApplyRingColourFromSession()
 		return;
 	}
 
-	const int32 PlayerSlot = MultiplayerGameInstance->GetPlayerSlotForController(GetController());
+	const int32 PlayerNumber = MultiplayerGameInstance->GetPlayerNumberForController(GetController());
 
-	SetRingColour(MultiplayerGameInstance->GetRingColourForPlayerSlot(PlayerSlot));
+	SetRingColour(MultiplayerGameInstance->GetRingColourForPlayer(PlayerNumber));
 }
 
 
