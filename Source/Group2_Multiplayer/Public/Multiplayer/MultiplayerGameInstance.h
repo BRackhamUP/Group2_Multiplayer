@@ -4,16 +4,25 @@
 #include "Engine/GameInstance.h"
 #include "MultiplayerGameInstance.generated.h"
 
-
 class UStaticMesh;
+class UMaterialInterface;
 class AController;
 
-/*
-one available body colour
+USTRUCT(BlueprintType)
+struct FSkinOption
+{
+	GENERATED_BODY()
 
-CosmeticId is included so a future unlock/save system has a stable
-identifier to work with without changing the current array structure
-*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FName CosmeticId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Customisation")
+	TObjectPtr<UMaterialInterface> Material = nullptr;
+};
+
 USTRUCT(BlueprintType)
 struct FBodyColourOption
 {
@@ -29,13 +38,6 @@ struct FBodyColourOption
 	FLinearColor Colour = FLinearColor::White;
 };
 
-
-/*
-one available mesh cosmetic
-
-RelativeTransform allows designers to adjust an item's position,
-rotation and scale without changing code
-*/
 USTRUCT(BlueprintType)
 struct FCosmeticMeshOption
 {
@@ -54,63 +56,55 @@ struct FCosmeticMeshOption
 	FTransform RelativeTransform = FTransform::Identity;
 };
 
-/*
-holds the data needed to remember each player during the game session
-
-this lives in the GameInstance rather than the player character because
-characters/controllers are destroyed and recreated during level changes
-
-one struct exists for each participating player
-*/
 USTRUCT(BlueprintType)
 struct FSessionPlayerData
 {
 	GENERATED_BODY()
 
-	// zero based - 0 = player 1, 1 = player 2 etc...
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 PlayerSlot = INDEX_NONE;
+	int32 PlayerNumber = INDEX_NONE;
 
-	// whether this player has readied up
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	int32 DisplayPosition = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	bool bHasJoined = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
+	bool bConnected = false;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	bool bReady = false;
 
-
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 CosmeticIndex = 0;
+	int32 SkinIndex = 0;
 
-	// unique per player, two players can never have the same ring colour
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 RingColourIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 HeadCosmeticIndex = 0;
+	int32 HeadwearIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 ChestCosmeticIndex = 0;
+	int32 EyewearIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 LegsCosmeticIndex = 0;
+	int32 BeardIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
-	int32 BackCosmeticIndex = 0;
+	int32 ClothingIndex = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 SelectedCustomisationRow = 0;
 
-	// unreal user that owns this player's controller
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 PlatformUserInternalId = INDEX_NONE;
 
-	// physical input device ID
 	UPROPERTY(BlueprintReadOnly, Category = "Session Player")
 	int32 InputDeviceInternalId = INDEX_NONE;
 };
 
-
-// widgets / preview actors listen to this to update themselves
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSessionPlayersChanged);
-
 
 UCLASS()
 class GROUP2_MULTIPLAYER_API UMultiplayerGameInstance : public UGameInstance
@@ -118,142 +112,89 @@ class GROUP2_MULTIPLAYER_API UMultiplayerGameInstance : public UGameInstance
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Players")
+	int32 GetPlayerNumberAtDisplayPosition(int32 DisplayPosition) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Lobby")
-	void SynchroniseLobbyPlayers();
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Controllers")
+	void SynchroniseControllers();
 
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Players")
+	int32 JoinPlayer(int32 PlatformUserInternalId);
 
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
-	int32 GetConnectedGamepadCount() const;
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Players")
+	int32 GetJoinedPlayerCount() const;
 
-
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
-	int32 GetSessionPlayerCount() const;
-
-
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Players")
 	TArray<FSessionPlayerData> GetSessionPlayers() const;
 
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Players")
+	int32 GetPlayerNumberForPlatformUser(int32 PlatformUserInternalId) const;
 
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
-	int32 GetPlayerSlotForPlatformUser(int32 PlatformUserInternalId) const;
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Players")
+	int32 GetPlayerNumberForController(const AController* Controller) const;
 
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Ready")
+	bool ReadyPlayer(int32 PlayerNumber);
 
-	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Lobby")
-	bool ReadyPlayer(int32 PlayerSlot);
+	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Ready")
+	bool UnreadyPlayer(int32 PlayerNumber);
 
-
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Lobby")
-	bool AreAllSessionPlayersReady() const;
+	UFUNCTION(BlueprintPure, Category = "Multiplayer|Ready")
+	bool AreAllJoinedPlayersReady() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation")
-	void MoveCustomisationSelection(int32 PlayerSlot, int32 Direction);
+	void MoveCustomisationSelection(int32 PlayerNumber, int32 Direction);
 
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation")
-	void CycleCosmetic(int32 PlayerSlot, int32 Direction);
+	void CycleCosmetic(int32 PlayerNumber, int32 Direction);
 
-
-	// kept for compatibility with any Blueprint references
-	// now returns the number of body colour options
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation")
-	int32 GetCosmeticOptionCount() const;
+	FText GetCustomisationDisplayName(int32 PlayerNumber, int32 CategoryIndex) const;
 
-
-	/*
-	used by the lobby UI so it can display the currently selected
-	option name without needing to understand all the arrays itself
-	*/
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation")
-	FText GetCustomisationDisplayName(int32 PlayerSlot, int32 CategoryIndex) const;
-
-	/*
-	set player ring colour directly
-	returns false if the slot/colour is invalid, the player has readied up,
-	or another player already has that colour
-	*/
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation|Ring")
-	bool SetRingColour(int32 PlayerSlot, int32 ColourIndex);
+	bool SetRingColour(int32 PlayerNumber, int32 ColourIndex);
 
-	// move to the next or previous ring colour, skipping colours other players have
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Customisation|Ring")
-	void CycleRingColour(int32 PlayerSlot, int32 Direction);
+	void CycleRingColour(int32 PlayerNumber, int32 Direction);
 
-	// true if a player OTHER than IgnorePlayerSlot has this colour (use to grey out picked colours)
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
-	bool IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerSlot = -1) const;
+	bool IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerNumber = -1) const;
 
-	// players current index into RingColourOptions
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
-	int32 GetRingColourIndex(int32 PlayerSlot) const;
+	int32 GetRingColourIndex(int32 PlayerNumber) const;
 
-	/*
-	the actual colour to show for a player
-	uses slots default colour if you are testing
-	*/
 	UFUNCTION(BlueprintPure, Category = "Multiplayer|Customisation|Ring")
-	FLinearColor GetRingColourForPlayerSlot(int32 PlayerSlot) const;
-
-	/*
-	which player slot a controller belongs to
-	matches by platform user like the lobby does, falling back to local player order
-	when there is no lobby session
-	*/
-	UFUNCTION(BlueprintPure, Category = "Multiplayer|Session")
-	int32 GetPlayerSlotForController(const AController* Controller) const;
-
+	FLinearColor GetRingColourForPlayer(int32 PlayerNumber) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Multiplayer|Session")
 	void ResetSession();
 
-	/*
-	designers populate these arrays through BP_GI_Multiplayer
-	no C++ changes are required when new hats/chest pieces/etc are created
-	*/
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
-	TArray<FBodyColourOption> BodyColourOptions;
+	TArray<FSkinOption> SkinOptions;
 
-	// the preset ring colours (one per player, so 4)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
 	TArray<FBodyColourOption> RingColourOptions;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
+	TArray<FCosmeticMeshOption> HeadwearOptions;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
-	TArray<FCosmeticMeshOption> HeadCosmeticOptions;
-
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
-	TArray<FCosmeticMeshOption> ChestCosmeticOptions;
-
+	TArray<FCosmeticMeshOption> EyewearOptions;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
-	TArray<FCosmeticMeshOption> LegsCosmeticOptions;
-
+	TArray<FCosmeticMeshOption> BeardOptions;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
-	TArray<FCosmeticMeshOption> BackCosmeticOptions;
+	TArray<FCosmeticMeshOption> ClothingOptions;
 
 	UPROPERTY(BlueprintAssignable, Category = "Multiplayer|Events")
 	FOnSessionPlayersChanged OnSessionPlayersChanged;
 
-
 protected:
-
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Multiplayer|Session")
 	TArray<FSessionPlayerData> SessionPlayers;
 
-
 private:
-
 	void GetConnectedGamepadMappings(TArray<FInputDeviceId>& OutDeviceIds, TArray<FPlatformUserId>& OutPlatformUsers) const;
-
-	bool DoesSessionMatchDetectedGamepads(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers) const;
-
-	void RebuildLocalPlayersAndSession(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers);
-
-	// return number of options available for one of the five categories
-	int32 GetOptionCountForCategory(int32 CategoryIndex) const;
-
-	// helper used to wrap an index around an array
-	void CycleIndexWrapped(int32& Index, int32 OptionCount, int32 Direction) const;
+	void UpdateDisplayPositions();
 };
