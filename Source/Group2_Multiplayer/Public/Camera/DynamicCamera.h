@@ -18,8 +18,12 @@ class GROUP2_MULTIPLAYER_API ADynamicCamera : public AActor
 	
 public:
 	ADynamicCamera();
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
 	float DampTime = 0.2;                 // Approximate time for the camera to refocus.
-	float ScreenEdgeBuffer = 4;           // Space between the top/bottom most target and the screen edge.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
+	float ScreenEdgeBuffer = 10;           // Space between the top/bottom most target and the screen edge.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
 	float MinSize = 6.5;
 	
 	UPROPERTY()
