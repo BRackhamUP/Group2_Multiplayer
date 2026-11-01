@@ -6,11 +6,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "GameplayGameMode.generated.h"
 
-/*
-game mode used for the gameplay level
-
-making sure each local olayer spawns at their correct tagged player start location
-*/
+//making sure each local olayer spawns at their correct tagged player start location
 UCLASS()
 class GROUP2_MULTIPLAYER_API AGameplayGameMode : public AGameModeBase
 {

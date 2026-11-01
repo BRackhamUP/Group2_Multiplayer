@@ -34,7 +34,7 @@ AActor* AGameplayGameMode::ChoosePlayerStart_Implementation(AController* Player)
 	int32 PlayerSlot = INDEX_NONE;
 
 	// find this playercontrollers position in unreals local controller list that becomes the index for the player slot
-	for (int32 Index = 0; Index < MultiplayerGameInstance->GetSessionPlayerCount(); ++Index)
+	for (int32 Index = 0; Index < MultiplayerGameInstance->GetJoinedPlayerCount(); ++Index)
 	{
 		APlayerController* IndexedController = UGameplayStatics::GetPlayerController(this, Index);
 

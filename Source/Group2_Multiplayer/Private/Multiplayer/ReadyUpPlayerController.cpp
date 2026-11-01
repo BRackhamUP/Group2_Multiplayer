@@ -1,83 +1,85 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #include "Multiplayer/ReadyUpPlayerController.h"
 
 #include "Multiplayer/MultiplayerGameInstance.h"
-
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
-
 #include "Engine/LocalPlayer.h"
+#include "TimerManager.h"
 
+AReadyUpPlayerController::AReadyUpPlayerController()
+{
+	PrimaryActorTick.bCanEverTick = true;
+}
 
 void AReadyUpPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-}
-
-
-void AReadyUpPlayerController::SetupInputComponent()
-{
-	Super::SetupInputComponent();
-
 
 	ULocalPlayer* LocalPlayer = GetLocalPlayer();
-
 
 	if (!LocalPlayer)
 	{
 		return;
 	}
 
+	// Player 1 joins automatically after the level has initialised.
+	const int32 LocalPlayerIndex = GetGameInstance()->GetLocalPlayers().IndexOfByKey(LocalPlayer);
 
-	/*
-	add lobby mapping here rather than BeginPlay because secondary
-	local players are created dynamically
-	*/
+	if (LocalPlayerIndex == 0)
+	{
+		GetWorldTimerManager().SetTimerForNextTick(this, &AReadyUpPlayerController::AutoJoinPlayerOne);
+	}
+}
+
+void AReadyUpPlayerController::SetupInputComponent()
+{
+	APlayerController::SetupInputComponent();
+
+	ULocalPlayer* LocalPlayer = GetLocalPlayer();
+
+	if (!LocalPlayer)
+	{
+		return;
+	}
+
 	UEnhancedInputLocalPlayerSubsystem* InputSubsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
-
 
 	if (InputSubsystem && LobbyMappingContext)
 	{
 		InputSubsystem->RemoveMappingContext(LobbyMappingContext);
-
-
 		InputSubsystem->AddMappingContext(LobbyMappingContext, 0);
 	}
 
-
 	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent);
-
 
 	if (!EnhancedInputComponent)
 	{
 		return;
 	}
 
-
 	if (ReadyAction)
 	{
-		EnhancedInputComponent->BindAction(ReadyAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleReady);
+		EnhancedInputComponent->BindAction(ReadyAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleReadyPressed);
+		EnhancedInputComponent->BindAction(ReadyAction, ETriggerEvent::Completed, this, &AReadyUpPlayerController::HandleReadyReleased);
+		EnhancedInputComponent->BindAction(ReadyAction, ETriggerEvent::Canceled, this, &AReadyUpPlayerController::HandleReadyReleased);
 	}
 
+	if (UnreadyAction)
+	{
+		EnhancedInputComponent->BindAction(UnreadyAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleUnready);
+	}
 
 	if (PreviousCosmeticAction)
 	{
 		EnhancedInputComponent->BindAction(PreviousCosmeticAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandlePreviousCosmetic);
 	}
 
-
 	if (NextCosmeticAction)
 	{
 		EnhancedInputComponent->BindAction(NextCosmeticAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleNextCosmetic);
 	}
 
-
-	/*
-	Started means the menu moves once when the stick crosses the deadzone,
-	rather than scrolling every frame while the stick is held
-	*/
 	if (NavigateCustomisationAction)
 	{
 		EnhancedInputComponent->BindAction(NavigateCustomisationAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleNavigateCustomisation);
@@ -86,149 +88,239 @@ void AReadyUpPlayerController::SetupInputComponent()
 
 void AReadyUpPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
+	ULocalPlayer* LocalPlayer = GetLocalPlayer();
+
+	if (LocalPlayer)
 	{
-		if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+		UEnhancedInputLocalPlayerSubsystem* InputSubsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+
+		if (InputSubsystem && LobbyMappingContext)
 		{
-			if (LobbyMappingContext)
-			{
-				InputSubsystem->RemoveMappingContext(LobbyMappingContext);
-			}
+			InputSubsystem->RemoveMappingContext(LobbyMappingContext);
 		}
 	}
-
 
 	Super::EndPlay(EndPlayReason);
 }
 
-
-int32 AReadyUpPlayerController::GetPlayerSlot() const
+void AReadyUpPlayerController::AutoJoinPlayerOne()
 {
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
+
+	if (!MultiplayerGameInstance)
+	{
+		return;
+	}
+
 	const FPlatformUserId PlatformUserId = GetPlatformUserId();
 
+	if (!PlatformUserId.IsValid())
+	{
+		return;
+	}
+
+	if (MultiplayerGameInstance->GetPlayerNumberForPlatformUser(PlatformUserId.GetInternalId()) != INDEX_NONE)
+	{
+		return;
+	}
+
+	MultiplayerGameInstance->JoinPlayer(PlatformUserId.GetInternalId());
+}
+
+int32 AReadyUpPlayerController::GetPlayerNumber() const
+{
+	const FPlatformUserId PlatformUserId = GetPlatformUserId();
 
 	if (!PlatformUserId.IsValid())
 	{
 		return INDEX_NONE;
 	}
 
-
-	const UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
-
+	const UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
 
 	if (!MultiplayerGameInstance)
 	{
 		return INDEX_NONE;
 	}
 
-
-	return MultiplayerGameInstance->GetPlayerSlotForPlatformUser(PlatformUserId.GetInternalId());
+	return MultiplayerGameInstance->GetPlayerNumberForPlatformUser(PlatformUserId.GetInternalId());
 }
 
-
-
-void AReadyUpPlayerController::HandleReady()
+UMultiplayerGameInstance* AReadyUpPlayerController::GetMultiplayerGameInstance() const
 {
-	const int32 PlayerSlot = GetPlayerSlot();
+	return Cast<UMultiplayerGameInstance>(GetGameInstance());
+}
 
-
-	if (PlayerSlot == INDEX_NONE)
-	{
-		return;
-	}
-
-
-	UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
-
+void AReadyUpPlayerController::HandleReadyPressed()
+{
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
 
 	if (!MultiplayerGameInstance)
 	{
 		return;
 	}
 
+	const FPlatformUserId PlatformUserId = GetPlatformUserId();
 
-	MultiplayerGameInstance->ReadyPlayer(PlayerSlot);
+	if (!PlatformUserId.IsValid())
+	{
+		return;
+	}
+
+	const int32 PlayerNumber = GetPlayerNumber();
+
+	// the first A press joins without starting the ready hold.
+	if (PlayerNumber == INDEX_NONE)
+	{
+		MultiplayerGameInstance->JoinPlayer(PlatformUserId.GetInternalId());
+		return;
+	}
+
+	const TArray<FSessionPlayerData>& SessionPlayers = MultiplayerGameInstance->GetSessionPlayers();
+
+	if (!SessionPlayers.IsValidIndex(PlayerNumber) || SessionPlayers[PlayerNumber].bReady)
+	{
+		return;
+	}
+
+	bHoldingReadyButton = true;
+	ReadyHoldTime = 0.0f;
+	ReadyHoldProgress = 0.0f;
 }
 
+void AReadyUpPlayerController::HandleReadyReleased()
+{
+	if (!bHoldingReadyButton)
+	{
+		return;
+	}
+
+	bHoldingReadyButton = false;
+	ReadyHoldTime = 0.0f;
+	ReadyHoldProgress = 0.0f;
+}
+
+void AReadyUpPlayerController::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!bHoldingReadyButton)
+	{
+		return;
+	}
+
+	const int32 PlayerNumber = GetPlayerNumber();
+
+	if (PlayerNumber == INDEX_NONE)
+	{
+		bHoldingReadyButton = false;
+		ReadyHoldTime = 0.0f;
+		ReadyHoldProgress = 0.0f;
+		return;
+	}
+
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
+
+	if (!MultiplayerGameInstance)
+	{
+		return;
+	}
+
+	const TArray<FSessionPlayerData>& SessionPlayers = MultiplayerGameInstance->GetSessionPlayers();
+
+	if (!SessionPlayers.IsValidIndex(PlayerNumber))
+	{
+		return;
+	}
+
+	if (!SessionPlayers[PlayerNumber].bConnected || SessionPlayers[PlayerNumber].bReady)
+	{
+		bHoldingReadyButton = false;
+		ReadyHoldTime = 0.0f;
+		ReadyHoldProgress = SessionPlayers[PlayerNumber].bReady ? 1.0f : 0.0f;
+		return;
+	}
+
+	ReadyHoldTime += DeltaSeconds;
+	ReadyHoldProgress = FMath::Clamp(ReadyHoldTime / RequiredReadyHoldTime, 0.0f, 1.0f);
+
+	if (ReadyHoldTime < RequiredReadyHoldTime)
+	{
+		return;
+	}
+
+	MultiplayerGameInstance->ReadyPlayer(PlayerNumber);
+
+	bHoldingReadyButton = false;
+	ReadyHoldTime = RequiredReadyHoldTime;
+	ReadyHoldProgress = 1.0f;
+}
+
+void AReadyUpPlayerController::HandleUnready()
+{
+	const int32 PlayerNumber = GetPlayerNumber();
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
+
+	if (PlayerNumber == INDEX_NONE || !MultiplayerGameInstance)
+	{
+		return;
+	}
+
+	if (MultiplayerGameInstance->UnreadyPlayer(PlayerNumber))
+	{
+		bHoldingReadyButton = false;
+		ReadyHoldTime = 0.0f;
+		ReadyHoldProgress = 0.0f;
+	}
+}
 
 void AReadyUpPlayerController::HandlePreviousCosmetic()
 {
-	const int32 PlayerSlot = GetPlayerSlot();
-
-
-	if (PlayerSlot == INDEX_NONE)
-	{
-		return;
-	}
-
-
-	UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
-
-
-	if (!MultiplayerGameInstance)
-	{
-		return;
-	}
-
-
-	MultiplayerGameInstance->CycleCosmetic(PlayerSlot, -1);
+	CycleSelectedCosmetic(-1);
 }
-
 
 void AReadyUpPlayerController::HandleNextCosmetic()
 {
-	const int32 PlayerSlot = GetPlayerSlot();
+	CycleSelectedCosmetic(1);
+}
 
+void AReadyUpPlayerController::CycleSelectedCosmetic(int32 Direction)
+{
+	const int32 PlayerNumber = GetPlayerNumber();
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
 
-	if (PlayerSlot == INDEX_NONE)
+	if (PlayerNumber == INDEX_NONE || !MultiplayerGameInstance)
 	{
 		return;
 	}
 
-
-	UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
-
-
-	if (!MultiplayerGameInstance)
-	{
-		return;
-	}
-
-
-	MultiplayerGameInstance->CycleCosmetic(PlayerSlot, 1);
+	MultiplayerGameInstance->CycleCosmetic(PlayerNumber, Direction);
 }
 
 void AReadyUpPlayerController::HandleNavigateCustomisation(const FInputActionValue& Value)
 {
-	const int32 PlayerSlot = GetPlayerSlot();
+	const int32 PlayerNumber = GetPlayerNumber();
 
-
-	if (PlayerSlot == INDEX_NONE)
+	if (PlayerNumber == INDEX_NONE)
 	{
 		return;
 	}
 
-
 	const float AxisValue = Value.Get<float>();
-
 
 	if (FMath::IsNearlyZero(AxisValue))
 	{
 		return;
 	}
 
-
+	// positive input moves up and negative input moves down.
 	const int32 Direction = AxisValue > 0.0f ? -1 : 1;
-
-
-	UMultiplayerGameInstance* MultiplayerGameInstance = Cast<UMultiplayerGameInstance>(GetGameInstance());
-
+	UMultiplayerGameInstance* MultiplayerGameInstance = GetMultiplayerGameInstance();
 
 	if (!MultiplayerGameInstance)
 	{
 		return;
 	}
 
-
-	MultiplayerGameInstance->MoveCustomisationSelection(PlayerSlot, Direction);
+	MultiplayerGameInstance->MoveCustomisationSelection(PlayerNumber, Direction);
 }

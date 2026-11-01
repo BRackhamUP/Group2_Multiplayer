@@ -2,20 +2,52 @@
 
 #include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
-
 #include "GameFramework/InputDeviceLibrary.h"
 #include "GameFramework/InputDeviceSubsystem.h"
 #include "GameFramework/PlayerController.h"
 
-#include "Kismet/GameplayStatics.h"
-
-
-// keeps each physical controller paired with the platform user that owns it
-struct FDetectedGamepad
+static void CycleIndexWrapped(int32& Index, int32 OptionCount, int32 Direction)
 {
-	FInputDeviceId DeviceId;
-	FPlatformUserId PlatformUserId;
-};
+	if (OptionCount <= 0)
+	{
+		Index = 0;
+		return;
+	}
+
+	if (Direction > 0)
+	{
+		++Index;
+	}
+	else if (Direction < 0)
+	{
+		--Index;
+	}
+
+	if (Index >= OptionCount)
+	{
+		Index = 0;
+	}
+
+	if (Index < 0)
+	{
+		Index = OptionCount - 1;
+	}
+}
+
+static FText GetOptionName(const FText& DisplayName, const FName& CosmeticId)
+{
+	if (!DisplayName.IsEmpty())
+	{
+		return DisplayName;
+	}
+
+	if (!CosmeticId.IsNone())
+	{
+		return FText::FromName(CosmeticId);
+	}
+
+	return FText::FromString(TEXT("None"));
+}
 
 void UMultiplayerGameInstance::GetConnectedGamepadMappings(TArray<FInputDeviceId>& OutDeviceIds, TArray<FPlatformUserId>& OutPlatformUsers) const
 {
@@ -23,7 +55,6 @@ void UMultiplayerGameInstance::GetConnectedGamepadMappings(TArray<FInputDeviceId
 	OutPlatformUsers.Empty();
 
 	TArray<FInputDeviceId> ConnectedDevices;
-
 	UInputDeviceLibrary::GetAllConnectedInputDevices(ConnectedDevices);
 
 	if (!GEngine)
@@ -38,13 +69,11 @@ void UMultiplayerGameInstance::GetConnectedGamepadMappings(TArray<FInputDeviceId
 		return;
 	}
 
-	TArray<FDetectedGamepad> DetectedGamepads;
-
-	for (const FInputDeviceId DeviceId : ConnectedDevices)
+	for (int32 DeviceIndex = 0; DeviceIndex < ConnectedDevices.Num(); ++DeviceIndex)
 	{
+		const FInputDeviceId DeviceId = ConnectedDevices[DeviceIndex];
 		const FHardwareDeviceIdentifier HardwareDevice = InputDeviceSubsystem->GetInputDeviceHardwareIdentifier(DeviceId);
 
-		// ignore keyboard/mouse/etc
 		if (HardwareDevice.PrimaryDeviceType != EHardwareDevicePrimaryType::Gamepad)
 		{
 			continue;
@@ -57,326 +86,382 @@ void UMultiplayerGameInstance::GetConnectedGamepadMappings(TArray<FInputDeviceId
 			continue;
 		}
 
-		bool bPlatformUserAlreadyAdded = false;
+		bool bAlreadyAdded = false;
 
-		for (const FDetectedGamepad& ExistingGamepad : DetectedGamepads)
+		for (int32 ExistingIndex = 0; ExistingIndex < OutPlatformUsers.Num(); ++ExistingIndex)
 		{
-			if (ExistingGamepad.PlatformUserId == PlatformUserId)
+			if (OutPlatformUsers[ExistingIndex] == PlatformUserId)
 			{
-				bPlatformUserAlreadyAdded = true;
+				bAlreadyAdded = true;
 				break;
 			}
 		}
 
-		if (bPlatformUserAlreadyAdded)
+		if (bAlreadyAdded)
 		{
 			continue;
 		}
 
-		FDetectedGamepad NewGamepad;
+		OutDeviceIds.Add(DeviceId);
+		OutPlatformUsers.Add(PlatformUserId);
 
-		NewGamepad.DeviceId = DeviceId;
-		NewGamepad.PlatformUserId = PlatformUserId;
-
-		DetectedGamepads.Add(NewGamepad);
-	}
-
-	// lower device IDs become the earlier player slots
-	DetectedGamepads.Sort([](const FDetectedGamepad& A, const FDetectedGamepad& B)
-		{
-			return A.DeviceId.GetId() < B.DeviceId.GetId();
-		}
-	);
-
-	if (DetectedGamepads.Num() > 4)
-	{
-		DetectedGamepads.SetNum(4);
-	}
-
-	for (const FDetectedGamepad& Gamepad : DetectedGamepads)
-	{
-		OutDeviceIds.Add(Gamepad.DeviceId);
-		OutPlatformUsers.Add(Gamepad.PlatformUserId);
-	}
-}
-
-
-int32 UMultiplayerGameInstance::GetConnectedGamepadCount() const
-{
-	TArray<FInputDeviceId> DeviceIds;
-	TArray<FPlatformUserId> PlatformUsers;
-
-	GetConnectedGamepadMappings(DeviceIds, PlatformUsers);
-
-	return DeviceIds.Num();
-}
-
-
-bool UMultiplayerGameInstance::DoesSessionMatchDetectedGamepads(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers) const
-{
-	if (DeviceIds.Num() != SessionPlayers.Num())
-	{
-		return false;
-	}
-
-	if (PlatformUsers.Num() != SessionPlayers.Num())
-	{
-		return false;
-	}
-
-	for (int32 Index = 0; Index < SessionPlayers.Num(); ++Index)
-	{
-		if (SessionPlayers[Index].InputDeviceInternalId != DeviceIds[Index].GetId())
-		{
-			return false;
-		}
-
-		if (SessionPlayers[Index].PlatformUserInternalId != PlatformUsers[Index].GetInternalId())
-		{
-			return false;
-		}
-	}
-
-	return true;
-}
-
-
-void UMultiplayerGameInstance::SynchroniseLobbyPlayers()
-{
-	TArray<FInputDeviceId> DeviceIds;
-	TArray<FPlatformUserId> PlatformUsers;
-
-	GetConnectedGamepadMappings(DeviceIds, PlatformUsers);
-
-	if (DoesSessionMatchDetectedGamepads(DeviceIds, PlatformUsers))
-	{
-		return;
-	}
-
-	RebuildLocalPlayersAndSession(DeviceIds, PlatformUsers);
-}
-
-
-void UMultiplayerGameInstance::RebuildLocalPlayersAndSession(const TArray<FInputDeviceId>& DeviceIds, const TArray<FPlatformUserId>& PlatformUsers)
-{
-	// remove secondary local players before rebuilding
-	while (GetNumLocalPlayers() > 1)
-	{
-		ULocalPlayer* PlayerToRemove = GetLocalPlayerByIndex(GetNumLocalPlayers() - 1);
-
-		if (!PlayerToRemove)
+		if (OutPlatformUsers.Num() >= 4)
 		{
 			break;
 		}
-
-		RemoveLocalPlayer(PlayerToRemove);
 	}
-
-	SessionPlayers.Empty();
-
-	if (PlatformUsers.IsEmpty())
-	{
-		OnSessionPlayersChanged.Broadcast();
-		return;
-	}
-
-	// Player 1 uses Unreal's existing LocalPlayer 0
-	ULocalPlayer* FirstLocalPlayer = GetLocalPlayerByIndex(0);
-
-	if (!FirstLocalPlayer)
-	{
-		return;
-	}
-
-	FirstLocalPlayer->SetPlatformUserId(PlatformUsers[0]);
-
-	/*
-	players 2-4 are created manually
-
-	false prevents CreateLocalPlayer from trying to create the
-	PlayerController itself - SpawnPlayActor handles that below
-	*/
-	for (int32 Index = 1; Index < PlatformUsers.Num(); ++Index)
-	{
-		FString CreateError;
-
-		ULocalPlayer* NewLocalPlayer = CreateLocalPlayer(PlatformUsers[Index], CreateError, false);
-
-		if (!NewLocalPlayer)
-		{
-			continue;
-		}
-
-		FString SpawnError;
-
-		const bool bSpawnSucceeded = NewLocalPlayer->SpawnPlayActor(TEXT(""), SpawnError, GetWorld());
-
-		if (!bSpawnSucceeded)
-		{
-			continue;
-		}
-
-		APlayerController* SpawnedController = UGameplayStatics::GetPlayerControllerFromPlatformUser(this, PlatformUsers[Index]);
-
-		if (!SpawnedController)
-		{
-			continue;
-		}
-	}
-
-	// build session player data
-	for (int32 Index = 0; Index < PlatformUsers.Num(); ++Index)
-	{
-		ULocalPlayer* LocalPlayer = FindLocalPlayerFromPlatformUserId(PlatformUsers[Index]);
-
-		if (!LocalPlayer)
-		{
-			continue;
-		}
-
-		APlayerController* PlayerController = UGameplayStatics::GetPlayerControllerFromPlatformUser(this, PlatformUsers[Index]);
-
-		if (!PlayerController)
-		{
-			continue;
-		}
-
-		FSessionPlayerData NewPlayerData;
-
-		NewPlayerData.PlayerSlot = SessionPlayers.Num();
-
-		NewPlayerData.bReady = false;
-
-		// give each player a different starting colour when possible
-		NewPlayerData.CosmeticIndex = BodyColourOptions.IsEmpty() ? 0 : NewPlayerData.PlayerSlot % BodyColourOptions.Num();
-
-		// give each player a different starting ring colour when possible
-		NewPlayerData.RingColourIndex = RingColourOptions.IsEmpty() ? 0 : NewPlayerData.PlayerSlot % RingColourOptions.Num();
-
-		// index 0 will be our "None" cosmetic
-		NewPlayerData.HeadCosmeticIndex = 0;
-		NewPlayerData.ChestCosmeticIndex = 0;
-		NewPlayerData.LegsCosmeticIndex = 0;
-		NewPlayerData.BackCosmeticIndex = 0;
-
-		NewPlayerData.SelectedCustomisationRow = 0;
-
-		NewPlayerData.PlatformUserInternalId = PlatformUsers[Index].GetInternalId();
-
-		NewPlayerData.InputDeviceInternalId = DeviceIds[Index].GetId();
-
-		SessionPlayers.Add(NewPlayerData);
-	}
-
-	OnSessionPlayersChanged.Broadcast();
 }
 
-
-int32 UMultiplayerGameInstance::GetSessionPlayerCount() const
+int32 UMultiplayerGameInstance::GetPlayerNumberAtDisplayPosition(int32 DisplayPosition) const
 {
-	return SessionPlayers.Num();
-}
-
-TArray<FSessionPlayerData>UMultiplayerGameInstance::GetSessionPlayers() const
-{
-	return SessionPlayers;
-}
-
-int32 UMultiplayerGameInstance::GetPlayerSlotForPlatformUser(int32 PlatformUserInternalId) const
-{
-	for (const FSessionPlayerData& PlayerData : SessionPlayers)
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
 	{
-		if (PlayerData.PlatformUserInternalId == PlatformUserInternalId)
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined && PlayerData.bConnected && PlayerData.DisplayPosition == DisplayPosition)
 		{
-			return PlayerData.PlayerSlot;
+			return PlayerData.PlayerNumber;
 		}
 	}
 
 	return INDEX_NONE;
 }
 
-
-bool UMultiplayerGameInstance::ReadyPlayer(int32 PlayerSlot)
+void UMultiplayerGameInstance::SynchroniseControllers()
 {
-	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	TArray<FInputDeviceId> DeviceIds;
+	TArray<FPlatformUserId> PlatformUsers;
+	GetConnectedGamepadMappings(DeviceIds, PlatformUsers);
+
+	const int32 RequiredLocalPlayerCount = FMath::Max(1, PlatformUsers.Num());
+	bool bNeedToRebuildLocalPlayers = GetNumLocalPlayers() != RequiredLocalPlayerCount;
+
+	if (!bNeedToRebuildLocalPlayers)
+	{
+		for (int32 ControllerIndex = 0; ControllerIndex < PlatformUsers.Num(); ++ControllerIndex)
+		{
+			if (!FindLocalPlayerFromPlatformUserId(PlatformUsers[ControllerIndex]))
+			{
+				bNeedToRebuildLocalPlayers = true;
+				break;
+			}
+		}
+	}
+
+	if (bNeedToRebuildLocalPlayers)
+	{
+		// Remove secondary LocalPlayers before rebuilding them.
+		while (GetNumLocalPlayers() > 1)
+		{
+			ULocalPlayer* PlayerToRemove = GetLocalPlayerByIndex(GetNumLocalPlayers() - 1);
+
+			if (!PlayerToRemove)
+			{
+				break;
+			}
+
+			RemoveLocalPlayer(PlayerToRemove);
+		}
+
+		if (!PlatformUsers.IsEmpty())
+		{
+			ULocalPlayer* FirstLocalPlayer = GetLocalPlayerByIndex(0);
+
+			if (FirstLocalPlayer)
+			{
+				FirstLocalPlayer->SetPlatformUserId(PlatformUsers[0]);
+			}
+
+			for (int32 ControllerIndex = 1; ControllerIndex < PlatformUsers.Num(); ++ControllerIndex)
+			{
+				FString CreateError;
+				ULocalPlayer* NewLocalPlayer = CreateLocalPlayer(PlatformUsers[ControllerIndex], CreateError, false);
+
+				if (!NewLocalPlayer)
+				{
+					continue;
+				}
+
+				FString SpawnError;
+				NewLocalPlayer->SpawnPlayActor(TEXT(""), SpawnError, GetWorld());
+			}
+		}
+	}
+
+	bool bSessionChanged = false;
+
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (!PlayerData.bHasJoined)
+		{
+			continue;
+		}
+
+		bool bControllerFound = false;
+		int32 CurrentDeviceId = INDEX_NONE;
+
+		for (int32 ControllerIndex = 0; ControllerIndex < PlatformUsers.Num(); ++ControllerIndex)
+		{
+			if (PlayerData.PlatformUserInternalId == PlatformUsers[ControllerIndex].GetInternalId())
+			{
+				bControllerFound = true;
+				CurrentDeviceId = DeviceIds[ControllerIndex].GetId();
+				break;
+			}
+		}
+
+		if (PlayerData.bConnected != bControllerFound)
+		{
+			PlayerData.bConnected = bControllerFound;
+			bSessionChanged = true;
+
+			if (!bControllerFound)
+			{
+				PlayerData.bReady = false;
+			}
+		}
+
+		if (PlayerData.InputDeviceInternalId != CurrentDeviceId)
+		{
+			PlayerData.InputDeviceInternalId = CurrentDeviceId;
+			bSessionChanged = true;
+		}
+	}
+
+	if (bSessionChanged)
+	{
+		UpdateDisplayPositions();
+		OnSessionPlayersChanged.Broadcast();
+	}
+}
+
+int32 UMultiplayerGameInstance::JoinPlayer(int32 PlatformUserInternalId)
+{
+	if (SessionPlayers.Num() != 4)
+	{
+		return INDEX_NONE;
+	}
+
+	TArray<FInputDeviceId> DeviceIds;
+	TArray<FPlatformUserId> PlatformUsers;
+	GetConnectedGamepadMappings(DeviceIds, PlatformUsers);
+
+	bool bControllerIsConnected = false;
+	int32 CurrentDeviceId = INDEX_NONE;
+
+	for (int32 ControllerIndex = 0; ControllerIndex < PlatformUsers.Num(); ++ControllerIndex)
+	{
+		if (PlatformUsers[ControllerIndex].GetInternalId() == PlatformUserInternalId)
+		{
+			bControllerIsConnected = true;
+			CurrentDeviceId = DeviceIds[ControllerIndex].GetId();
+			break;
+		}
+	}
+
+	if (!bControllerIsConnected)
+	{
+		return INDEX_NONE;
+	}
+
+	// Reconnect an existing permanent player.
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined && PlayerData.PlatformUserInternalId == PlatformUserInternalId)
+		{
+			PlayerData.bConnected = true;
+			PlayerData.InputDeviceInternalId = CurrentDeviceId;
+
+			UpdateDisplayPositions();
+			OnSessionPlayersChanged.Broadcast();
+
+			return PlayerData.PlayerNumber;
+		}
+	}
+
+	// New controllers claim the first unused player number.
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined)
+		{
+			continue;
+		}
+
+		PlayerData.bHasJoined = true;
+		PlayerData.bConnected = true;
+		PlayerData.bReady = false;
+		PlayerData.PlatformUserInternalId = PlatformUserInternalId;
+		PlayerData.InputDeviceInternalId = CurrentDeviceId;
+
+		for (int32 ColourIndex = 0; ColourIndex < RingColourOptions.Num(); ++ColourIndex)
+		{
+			if (!IsRingColourTaken(ColourIndex, PlayerData.PlayerNumber))
+			{
+				PlayerData.RingColourIndex = ColourIndex;
+				break;
+			}
+		}
+
+		UpdateDisplayPositions();
+		OnSessionPlayersChanged.Broadcast();
+
+		return PlayerData.PlayerNumber;
+	}
+
+	return INDEX_NONE;
+}
+
+void UMultiplayerGameInstance::UpdateDisplayPositions()
+{
+	int32 NextDisplayPosition = 0;
+
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+		PlayerData.DisplayPosition = INDEX_NONE;
+
+		if (PlayerData.bHasJoined && PlayerData.bConnected)
+		{
+			PlayerData.DisplayPosition = NextDisplayPosition++;
+		}
+	}
+}
+
+int32 UMultiplayerGameInstance::GetJoinedPlayerCount() const
+{
+	int32 PlayerCount = 0;
+
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined && PlayerData.bConnected)
+		{
+			++PlayerCount;
+		}
+	}
+
+	return PlayerCount;
+}
+
+TArray<FSessionPlayerData> UMultiplayerGameInstance::GetSessionPlayers() const
+{
+	return SessionPlayers;
+}
+
+int32 UMultiplayerGameInstance::GetPlayerNumberForPlatformUser(int32 PlatformUserInternalId) const
+{
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined && PlayerData.PlatformUserInternalId == PlatformUserInternalId)
+		{
+			return PlayerData.PlayerNumber;
+		}
+	}
+
+	return INDEX_NONE;
+}
+
+bool UMultiplayerGameInstance::ReadyPlayer(int32 PlayerNumber)
+{
+	if (!SessionPlayers.IsValidIndex(PlayerNumber))
 	{
 		return false;
 	}
 
-	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
-	// ready is currently one-way
-	if (PlayerData.bReady)
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || PlayerData.bReady)
 	{
 		return false;
 	}
 
 	PlayerData.bReady = true;
-
 	OnSessionPlayersChanged.Broadcast();
 
 	return true;
 }
 
-
-bool UMultiplayerGameInstance::AreAllSessionPlayersReady() const
+bool UMultiplayerGameInstance::UnreadyPlayer(int32 PlayerNumber)
 {
-	if (SessionPlayers.IsEmpty())
+	if (!SessionPlayers.IsValidIndex(PlayerNumber))
 	{
 		return false;
 	}
 
-	for (const FSessionPlayerData& PlayerData : SessionPlayers)
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
+
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || !PlayerData.bReady)
 	{
+		return false;
+	}
+
+	PlayerData.bReady = false;
+	OnSessionPlayersChanged.Broadcast();
+
+	return true;
+}
+
+bool UMultiplayerGameInstance::AreAllJoinedPlayersReady() const
+{
+	int32 JoinedPlayerCount = 0;
+
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (!PlayerData.bHasJoined || !PlayerData.bConnected)
+		{
+			continue;
+		}
+
+		++JoinedPlayerCount;
+
 		if (!PlayerData.bReady)
 		{
 			return false;
 		}
 	}
 
-	return true;
+	return JoinedPlayerCount > 0;
 }
 
-void UMultiplayerGameInstance::MoveCustomisationSelection(int32 PlayerSlot, int32 Direction)
+void UMultiplayerGameInstance::MoveCustomisationSelection(int32 PlayerNumber, int32 Direction)
 {
-	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	if (!SessionPlayers.IsValidIndex(PlayerNumber))
 	{
 		return;
 	}
 
-	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
-	// customisation locks once the player readies
-	if (PlayerData.bReady)
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || PlayerData.bReady)
 	{
 		return;
 	}
 
-	// 0 body colour, 1 head, 2 chest, 3 legs, 4 back, 5 ring colour
-	constexpr int32 CategoryCount = 6;
-
-	int32 NewRow = (PlayerData.SelectedCustomisationRow + Direction) % CategoryCount;
-
-	if (NewRow < 0)
-	{
-		NewRow += CategoryCount;
-	}
-
-	PlayerData.SelectedCustomisationRow = NewRow;
-
+	CycleIndexWrapped(PlayerData.SelectedCustomisationRow, 6, Direction);
 	OnSessionPlayersChanged.Broadcast();
 }
 
-void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerSlot, int32 Direction)
+void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerNumber, int32 Direction)
 {
-	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	if (!SessionPlayers.IsValidIndex(PlayerNumber) || Direction == 0)
 	{
 		return;
 	}
 
-	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
-	if (PlayerData.bReady)
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || PlayerData.bReady)
 	{
 		return;
 	}
@@ -384,275 +469,161 @@ void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerSlot, int32 Direction)
 	switch (PlayerData.SelectedCustomisationRow)
 	{
 	case 0:
-
-		CycleIndexWrapped(PlayerData.CosmeticIndex, BodyColourOptions.Num(), Direction);
-
+		CycleIndexWrapped(PlayerData.SkinIndex, SkinOptions.Num(), Direction);
 		break;
-
 
 	case 1:
-
-		CycleIndexWrapped(PlayerData.HeadCosmeticIndex, HeadCosmeticOptions.Num(), Direction);
-
-		break;
-
-
-	case 2:
-
-		CycleIndexWrapped(PlayerData.ChestCosmeticIndex, ChestCosmeticOptions.Num(), Direction);
-
-		break;
-
-
-	case 3:
-
-		CycleIndexWrapped(PlayerData.LegsCosmeticIndex, LegsCosmeticOptions.Num(), Direction);
-
-		break;
-
-
-	case 4:
-
-		CycleIndexWrapped(PlayerData.BackCosmeticIndex, BackCosmeticOptions.Num(), Direction);
-
-		break;
-
-
-	case 5:
-
-		CycleRingColour(PlayerSlot, Direction);
-
+		CycleRingColour(PlayerNumber, Direction);
 		return;
 
+	case 2:
+		CycleIndexWrapped(PlayerData.HeadwearIndex, HeadwearOptions.Num(), Direction);
+		break;
+
+	case 3:
+		CycleIndexWrapped(PlayerData.EyewearIndex, EyewearOptions.Num(), Direction);
+		break;
+
+	case 4:
+		CycleIndexWrapped(PlayerData.BeardIndex, BeardOptions.Num(), Direction);
+		break;
+
+	case 5:
+		CycleIndexWrapped(PlayerData.ClothingIndex, ClothingOptions.Num(), Direction);
+		break;
 
 	default:
-		break;
+		return;
 	}
 
 	OnSessionPlayersChanged.Broadcast();
 }
 
-
-void UMultiplayerGameInstance::CycleIndexWrapped(int32& Index, int32 OptionCount, int32 Direction) const
+FText UMultiplayerGameInstance::GetCustomisationDisplayName(int32 PlayerNumber, int32 CategoryIndex) const
 {
-	if (OptionCount <= 0)
-	{
-		Index = 0;
-		return;
-	}
-
-	Index = (Index + Direction) % OptionCount;
-
-	if (Index < 0)
-	{
-		Index += OptionCount;
-	}
-}
-
-
-int32 UMultiplayerGameInstance::GetOptionCountForCategory(int32 CategoryIndex) const
-{
-	switch (CategoryIndex)
-	{
-	case 0:
-		return BodyColourOptions.Num();
-
-	case 1:
-		return HeadCosmeticOptions.Num();
-
-	case 2:
-		return ChestCosmeticOptions.Num();
-
-	case 3:
-		return LegsCosmeticOptions.Num();
-
-	case 4:
-		return BackCosmeticOptions.Num();
-
-	case 5:
-		return RingColourOptions.Num();
-
-	default:
-		return 0;
-	}
-}
-
-
-int32 UMultiplayerGameInstance::GetCosmeticOptionCount() const
-{
-	return BodyColourOptions.Num();
-}
-
-FText UMultiplayerGameInstance::GetCustomisationDisplayName(int32 PlayerSlot, int32 CategoryIndex) const
-{
-	if (!SessionPlayers.IsValidIndex(PlayerSlot))
+	if (!SessionPlayers.IsValidIndex(PlayerNumber) || !SessionPlayers[PlayerNumber].bHasJoined)
 	{
 		return FText::FromString(TEXT("None"));
 	}
 
-	const FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
-
-	auto ResolveName = [](const FText& DisplayName, const FName CosmeticId)
-		{
-			if (!DisplayName.IsEmpty())
-			{
-				return DisplayName;
-			}
-
-			if (!CosmeticId.IsNone())
-			{
-				return FText::FromName(CosmeticId);
-			}
-
-			return FText::FromString(TEXT("None"));
-		};
+	const FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
 	switch (CategoryIndex)
 	{
 	case 0:
-
-		if (BodyColourOptions.IsValidIndex(PlayerData.CosmeticIndex))
+		if (SkinOptions.IsValidIndex(PlayerData.SkinIndex))
 		{
-			const FBodyColourOption& Option = BodyColourOptions[PlayerData.CosmeticIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
+			const FSkinOption& Option = SkinOptions[PlayerData.SkinIndex];
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
 		}
-
 		break;
-
 
 	case 1:
-
-		if (HeadCosmeticOptions.IsValidIndex(PlayerData.HeadCosmeticIndex))
-		{
-			const FCosmeticMeshOption& Option = HeadCosmeticOptions[PlayerData.HeadCosmeticIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
-		}
-
-		break;
-
-
-	case 2:
-
-		if (ChestCosmeticOptions.IsValidIndex(PlayerData.ChestCosmeticIndex))
-		{
-			const FCosmeticMeshOption& Option = ChestCosmeticOptions[PlayerData.ChestCosmeticIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
-		}
-
-		break;
-
-
-	case 3:
-
-		if (LegsCosmeticOptions.IsValidIndex(PlayerData.LegsCosmeticIndex))
-		{
-			const FCosmeticMeshOption& Option = LegsCosmeticOptions[PlayerData.LegsCosmeticIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
-		}
-
-		break;
-
-
-	case 4:
-
-		if (BackCosmeticOptions.IsValidIndex(PlayerData.BackCosmeticIndex))
-		{
-			const FCosmeticMeshOption& Option = BackCosmeticOptions[PlayerData.BackCosmeticIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
-		}
-
-		break;
-
-
-	case 5:
-
 		if (RingColourOptions.IsValidIndex(PlayerData.RingColourIndex))
 		{
 			const FBodyColourOption& Option = RingColourOptions[PlayerData.RingColourIndex];
-
-			return ResolveName(Option.DisplayName, Option.CosmeticId);
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
 		}
-
 		break;
 
+	case 2:
+		if (HeadwearOptions.IsValidIndex(PlayerData.HeadwearIndex))
+		{
+			const FCosmeticMeshOption& Option = HeadwearOptions[PlayerData.HeadwearIndex];
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
+		}
+		break;
 
-	default:
+	case 3:
+		if (EyewearOptions.IsValidIndex(PlayerData.EyewearIndex))
+		{
+			const FCosmeticMeshOption& Option = EyewearOptions[PlayerData.EyewearIndex];
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
+		}
+		break;
+
+	case 4:
+		if (BeardOptions.IsValidIndex(PlayerData.BeardIndex))
+		{
+			const FCosmeticMeshOption& Option = BeardOptions[PlayerData.BeardIndex];
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
+		}
+		break;
+
+	case 5:
+		if (ClothingOptions.IsValidIndex(PlayerData.ClothingIndex))
+		{
+			const FCosmeticMeshOption& Option = ClothingOptions[PlayerData.ClothingIndex];
+			return GetOptionName(Option.DisplayName, Option.CosmeticId);
+		}
 		break;
 	}
 
 	return FText::FromString(TEXT("None"));
 }
 
-
-// player ring colour
-
-bool UMultiplayerGameInstance::SetRingColour(int32 PlayerSlot, int32 ColourIndex)
+bool UMultiplayerGameInstance::SetRingColour(int32 PlayerNumber, int32 ColourIndex)
 {
-	if (!SessionPlayers.IsValidIndex(PlayerSlot) || !RingColourOptions.IsValidIndex(ColourIndex))
+	if (!SessionPlayers.IsValidIndex(PlayerNumber) || !RingColourOptions.IsValidIndex(ColourIndex))
 	{
 		return false;
 	}
 
-	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
-	// customisation locks once the player readies
-	if (PlayerData.bReady || IsRingColourTaken(ColourIndex, PlayerSlot))
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || PlayerData.bReady || IsRingColourTaken(ColourIndex, PlayerNumber))
 	{
 		return false;
 	}
 
 	PlayerData.RingColourIndex = ColourIndex;
-
 	OnSessionPlayersChanged.Broadcast();
 
 	return true;
 }
 
-void UMultiplayerGameInstance::CycleRingColour(int32 PlayerSlot, int32 Direction)
+void UMultiplayerGameInstance::CycleRingColour(int32 PlayerNumber, int32 Direction)
 {
-	if (!SessionPlayers.IsValidIndex(PlayerSlot) || RingColourOptions.IsEmpty() || Direction == 0)
+	if (!SessionPlayers.IsValidIndex(PlayerNumber) || RingColourOptions.IsEmpty() || Direction == 0)
 	{
 		return;
 	}
 
-	FSessionPlayerData& PlayerData = SessionPlayers[PlayerSlot];
+	FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
 
-	if (PlayerData.bReady)
+	if (!PlayerData.bHasJoined || !PlayerData.bConnected || PlayerData.bReady)
 	{
 		return;
 	}
 
-	const int32 OptionCount = RingColourOptions.Num();
-	const int32 Step = Direction > 0 ? 1 : -1;
-	int32 Candidate = PlayerData.RingColourIndex;
+	int32 CandidateColour = PlayerData.RingColourIndex;
 
-	// cycle colours until we find one nobody else has
-	// if every other colour is taken nothing changes (this should never happen anyway)
-	for (int32 Attempt = 0; Attempt < OptionCount; ++Attempt)
+	// Keep cycling until an unused colour is found.
+	for (int32 Attempt = 0; Attempt < RingColourOptions.Num(); ++Attempt)
 	{
-		CycleIndexWrapped(Candidate, OptionCount, Step);
+		CycleIndexWrapped(CandidateColour, RingColourOptions.Num(), Direction);
 
-		if (!IsRingColourTaken(Candidate, PlayerSlot))
+		if (!IsRingColourTaken(CandidateColour, PlayerNumber))
 		{
-			PlayerData.RingColourIndex = Candidate;
-
+			PlayerData.RingColourIndex = CandidateColour;
 			OnSessionPlayersChanged.Broadcast();
-
 			return;
 		}
 	}
 }
 
-bool UMultiplayerGameInstance::IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerSlot) const
+bool UMultiplayerGameInstance::IsRingColourTaken(int32 ColourIndex, int32 IgnorePlayerNumber) const
 {
-	for (const FSessionPlayerData& PlayerData : SessionPlayers)
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
 	{
-		if (PlayerData.PlayerSlot != IgnorePlayerSlot && PlayerData.RingColourIndex == ColourIndex)
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (!PlayerData.bHasJoined || PlayerData.PlayerNumber == IgnorePlayerNumber)
+		{
+			continue;
+		}
+
+		if (PlayerData.RingColourIndex == ColourIndex)
 		{
 			return true;
 		}
@@ -661,29 +632,39 @@ bool UMultiplayerGameInstance::IsRingColourTaken(int32 ColourIndex, int32 Ignore
 	return false;
 }
 
-int32 UMultiplayerGameInstance::GetRingColourIndex(int32 PlayerSlot) const
+int32 UMultiplayerGameInstance::GetRingColourIndex(int32 PlayerNumber) const
 {
-	return SessionPlayers.IsValidIndex(PlayerSlot) ? SessionPlayers[PlayerSlot].RingColourIndex : INDEX_NONE;
+	if (!SessionPlayers.IsValidIndex(PlayerNumber))
+	{
+		return INDEX_NONE;
+	}
+
+	return SessionPlayers[PlayerNumber].RingColourIndex;
 }
 
-FLinearColor UMultiplayerGameInstance::GetRingColourForPlayerSlot(int32 PlayerSlot) const
+FLinearColor UMultiplayerGameInstance::GetRingColourForPlayer(int32 PlayerNumber) const
 {
 	if (RingColourOptions.IsEmpty())
 	{
 		return FLinearColor::White;
 	}
 
-	// chosen colour from the lobby if there is one (there should always be one)
-	if (SessionPlayers.IsValidIndex(PlayerSlot) && RingColourOptions.IsValidIndex(SessionPlayers[PlayerSlot].RingColourIndex))
+	if (SessionPlayers.IsValidIndex(PlayerNumber))
 	{
-		return RingColourOptions[SessionPlayers[PlayerSlot].RingColourIndex].Colour;
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
+
+		if (RingColourOptions.IsValidIndex(PlayerData.RingColourIndex))
+		{
+			return RingColourOptions[PlayerData.RingColourIndex].Colour;
+		}
 	}
 
-	// if there is no session (testing) then use slots default colour
-	return RingColourOptions[FMath::Max(PlayerSlot, 0) % RingColourOptions.Num()].Colour;
+	// Fallback for testing without a normal session.
+	const int32 FallbackIndex = FMath::Max(PlayerNumber, 0) % RingColourOptions.Num();
+	return RingColourOptions[FallbackIndex].Colour;
 }
 
-int32 UMultiplayerGameInstance::GetPlayerSlotForController(const AController* Controller) const
+int32 UMultiplayerGameInstance::GetPlayerNumberForController(const AController* Controller) const
 {
 	const APlayerController* PlayerController = Cast<APlayerController>(Controller);
 
@@ -692,23 +673,40 @@ int32 UMultiplayerGameInstance::GetPlayerSlotForController(const AController* Co
 		return INDEX_NONE;
 	}
 
-	// same matching the lobby uses
 	const FPlatformUserId PlatformUserId = PlayerController->GetPlatformUserId();
 
 	if (PlatformUserId.IsValid())
 	{
-		const int32 PlayerSlot = GetPlayerSlotForPlatformUser(PlatformUserId.GetInternalId());
+		const int32 PlayerNumber = GetPlayerNumberForPlatformUser(PlatformUserId.GetInternalId());
 
-		if (PlayerSlot != INDEX_NONE)
+		if (PlayerNumber != INDEX_NONE)
 		{
-			return PlayerSlot;
+			return PlayerNumber;
 		}
 	}
 
-	// no lobby session - fall back to the order unreal created the local players in
-	if (const ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
+	const ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer();
+
+	if (!LocalPlayer)
 	{
-		return GetLocalPlayers().IndexOfByKey(LocalPlayer);
+		return INDEX_NONE;
+	}
+
+	const int32 LocalPlayerIndex = GetLocalPlayers().IndexOfByKey(LocalPlayer);
+
+	if (LocalPlayerIndex == INDEX_NONE)
+	{
+		return INDEX_NONE;
+	}
+
+	for (int32 PlayerIndex = 0; PlayerIndex < SessionPlayers.Num(); ++PlayerIndex)
+	{
+		const FSessionPlayerData& PlayerData = SessionPlayers[PlayerIndex];
+
+		if (PlayerData.bHasJoined && PlayerData.bConnected && PlayerData.DisplayPosition == LocalPlayerIndex)
+		{
+			return PlayerData.PlayerNumber;
+		}
 	}
 
 	return INDEX_NONE;
@@ -716,12 +714,13 @@ int32 UMultiplayerGameInstance::GetPlayerSlotForController(const AController* Co
 
 void UMultiplayerGameInstance::ResetSession()
 {
-	for (FSessionPlayerData& PlayerData : SessionPlayers)
+	SessionPlayers.Empty();
+
+	for (int32 PlayerNumber = 0; PlayerNumber < 4; ++PlayerNumber)
 	{
-
-		PlayerData.bReady = false;
-
-		PlayerData.SelectedCustomisationRow = 0;
+		FSessionPlayerData NewPlayer;
+		NewPlayer.PlayerNumber = PlayerNumber;
+		SessionPlayers.Add(NewPlayer);
 	}
 
 	OnSessionPlayersChanged.Broadcast();
