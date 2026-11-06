@@ -12,6 +12,7 @@ class UPrimitiveComponent;
 class AItemBase;
 class UDecalComponent;
 class UMaterialInstanceDynamic;
+class UStaticMeshComponent;
 
 UCLASS()
 class GROUP2_MULTIPLAYER_API APlayerCharacterBase : public ACharacter
@@ -41,6 +42,23 @@ protected:
 	// name of the colour parameter inside the ring material
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Ring")
 	FName RingColourParameterName = TEXT("RingColour");
+
+	// height above the floor (from the bottom of the capsule) at which the ring reaches its smallest size while in the air
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Ring", meta = (ClampMin = "1.0", Units = "cm"))
+	float RingFullyShrunkHeight = 150.f;
+
+	// this is the smallest the ring gets while in the air (1 = never shrinks)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Ring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RingMinScale = 0.35f;
+
+	// flat ring mesh kept on floor under the player, its material only draws it when the
+	// floor ring is hidden behind scenery, so players can still see where they are
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player Ring")
+	TObjectPtr<UStaticMeshComponent> GhostRingMesh;
+
+	// how far above the floor the ghost ring sits, stops it flickering against the floor
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player Ring", meta = (ClampMin = "0.0", Units = "cm"))
+	float GhostRingFloorOffset = 2.f;
 
 	// the input mapping context assigned in the blueprint inspector panel
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -207,6 +225,10 @@ private:
 	// only fires the prompt event when the prompted item or the held item actually changes
 	void SetPromptedItem(AItemBase* Item);
 
+	// every tick, shrink the ring decal with height and keep the ghost ring on the floor at the same size
+	// I added a check in this function to not update when we are standing still using KINDA_SMALL_NUMBER
+	void UpdateRings();
+
 	// the weapon in this players hand (only 1 at a time)
 	UPROPERTY(Transient)
 	TObjectPtr<AItemBase> HeldItem;
@@ -224,6 +246,10 @@ private:
 	// a copy of the ring material for each character
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> RingMaterialInstance;
+
+	// a copy of the ghost ring material for each character, so it matches this players colour
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> GhostRingMaterialInstance;
 
 	FLinearColor RingColour = FLinearColor::White;
 };

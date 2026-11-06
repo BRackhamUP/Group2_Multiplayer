@@ -20,10 +20,35 @@
 #include "Engine/Engine.h"
 
 #include "Components/DecalComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 #include "Items/ItemBase.h"
 #include "Multiplayer/MultiplayerGameInstance.h"
+
+namespace
+{
+	// how far the bottom of the capsule is above whatever is below it
+	// returns -1 if there is nothing within MaxDistance (if player is falling off platform)
+	float GetHeightAboveFloor(const ACharacter* Character, float MaxDistance)
+	{
+		const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Start = Character->GetActorLocation();
+		const FVector End = Start - FVector(0.f, 0.f, HalfHeight + MaxDistance);
+
+		FHitResult Hit;
+
+		// ignore our own capsule, the trace starts inside it
+		FCollisionQueryParams Params;
+		Params.AddIgnoredActor(Character);
+		if (!Character->GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+		{
+			return -1.f;
+		}
+
+		return FMath::Max(0.f, Hit.Distance - HalfHeight);
+	}
+}
 
 // settin default values
 APlayerCharacterBase::APlayerCharacterBase()
@@ -59,6 +84,15 @@ APlayerCharacterBase::APlayerCharacterBase()
 	RingDecal->SetupAttachment(GetCapsuleComponent());
 	RingDecal->SetRelativeRotation(FRotator(-90.f, 0.f, 0.f));
 	RingDecal->DecalSize = FVector(300.f, 60.f, 60.f);
+
+	// ghost ring: purely visual, disabled collision, shadows and navigation
+	// position and size are from tick (see UpdateRings)
+	GhostRingMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("GhostRingMesh"));
+	GhostRingMesh->SetupAttachment(GetCapsuleComponent());
+	GhostRingMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GhostRingMesh->SetGenerateOverlapEvents(false);
+	GhostRingMesh->SetCastShadow(false);
+	GhostRingMesh->SetCanEverAffectNavigation(false);
 }
 
 // Called when the game starts or when spawned
@@ -111,6 +145,9 @@ void APlayerCharacterBase::Tick(float DeltaTime)
 	UpdateFacing(DeltaTime);
 
 	UpdateNearbyItems();
+
+	// shrink the ring the further we are off the ground, and keep the ghost ring matching it
+	UpdateRings();
 
 	// count down any buffered jump request. the jump was feeling really unresponsive in testing hence the jump buffer
 	if (JumpBufferTimer > 0.0f)
@@ -349,6 +386,90 @@ void APlayerCharacterBase::SetRingColour(FLinearColor NewColour)
 	if (RingMaterialInstance)
 	{
 		RingMaterialInstance->SetVectorParameterValue(RingColourParameterName, RingColour);
+	}
+
+	// same again but for the ghost ring
+	if (!GhostRingMaterialInstance && GhostRingMesh && GhostRingMesh->GetMaterial(0))
+	{
+		GhostRingMaterialInstance = GhostRingMesh->CreateAndSetMaterialInstanceDynamic(0);
+	}
+
+	if (GhostRingMaterialInstance)
+	{
+		GhostRingMaterialInstance->SetVectorParameterValue(RingColourParameterName, RingColour);
+	}
+}
+
+void APlayerCharacterBase::UpdateRings()
+{
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+
+	float RingScale = 1.f;
+
+	// how far below the bottom of the capsule the floor is, on the ground its right under us
+	float HeightAboveFloor = 0.f;
+	bool bHasFloor = true;
+
+	// on the ground = full size, no need to trace
+	if (!GetCharacterMovement()->IsMovingOnGround())
+	{
+		// trace as far as the decal can project (X is its projection depth), so the ghost ring
+		// still finds the floor after the ring has fully shrunk
+		float TraceDistance = RingFullyShrunkHeight;
+		if (RingDecal)
+		{
+			TraceDistance = FMath::Max(TraceDistance, RingDecal->DecalSize.X * RingDecal->GetRelativeScale3D().X - HalfHeight);
+		}
+
+		HeightAboveFloor = GetHeightAboveFloor(this, TraceDistance);
+		bHasFloor = HeightAboveFloor >= 0.f;
+
+		// nothing below us within range counts as fully shrunk
+		const float Alpha = bHasFloor ? FMath::Clamp(HeightAboveFloor / RingFullyShrunkHeight, 0.f, 1.f) : 1.f;
+		RingScale = FMath::Lerp(1.f, RingMinScale, Alpha);
+	}
+
+	// this has to be scaled relative to each components default scale (from the BP), so any scale set there is respected
+	const APlayerCharacterBase* Defaults = GetClass()->GetDefaultObject<APlayerCharacterBase>();
+
+	if (RingDecal)
+	{
+		// only Y/Z are the ring size, X is the projection depth so dont change it
+		const FVector BaseScale = (Defaults && Defaults->RingDecal) ? Defaults->RingDecal->GetRelativeScale3D() : FVector::OneVector;
+		const FVector NewScale(BaseScale.X, BaseScale.Y * RingScale, BaseScale.Z * RingScale);
+
+		// dont update the decal render state every frame if we are standing still
+		if (!RingDecal->GetRelativeScale3D().Equals(NewScale, KINDA_SMALL_NUMBER))
+		{
+			RingDecal->SetRelativeScale3D(NewScale);
+		}
+	}
+
+	if (GhostRingMesh)
+	{
+		// nothing to sit on (falling off a platform), so hide it instead of leaving it floating
+		GhostRingMesh->SetVisibility(bHasFloor);
+
+		if (bHasFloor)
+		{
+			// the mesh is flat, so X/Y are the ring size
+			const FVector BaseScale = (Defaults && Defaults->GhostRingMesh) ? Defaults->GhostRingMesh->GetRelativeScale3D() : FVector::OneVector;
+			const FVector NewScale(BaseScale.X * RingScale, BaseScale.Y * RingScale, BaseScale.Z);
+
+			// keep it on the floor rather than following player up into the air
+			// the capsule only ever yaws, so relative Z is the same as world Z
+			const FVector NewLocation(0.f, 0.f, -HalfHeight - HeightAboveFloor + GhostRingFloorOffset);
+
+			if (!GhostRingMesh->GetRelativeScale3D().Equals(NewScale, KINDA_SMALL_NUMBER))
+			{
+				GhostRingMesh->SetRelativeScale3D(NewScale);
+			}
+
+			if (!GhostRingMesh->GetRelativeLocation().Equals(NewLocation, KINDA_SMALL_NUMBER))
+			{
+				GhostRingMesh->SetRelativeLocation(NewLocation);
+			}
+		}
 	}
 }
 
