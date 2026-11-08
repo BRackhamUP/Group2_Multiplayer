@@ -3,6 +3,10 @@
 
 #include "Camera/DynamicCamera.h"
 
+#include "EngineUtils.h"
+#include "ToolBuilderUtil.h"
+#include "Camera/CameraCentreActor.h"
+
 
 ADynamicCamera::ADynamicCamera()
 {
@@ -33,7 +37,12 @@ void ADynamicCamera::BeginPlay()
 			PC->SetViewTarget(this);
 		}
 	}
-
+	
+	for (TActorIterator<ACameraCentreActor> It(GetWorld()); It; ++It)
+	{
+			Targets.Add(*It);
+	}
+	
 	
 	SetStartPositionAndSize();
 	
@@ -115,28 +124,44 @@ float ADynamicCamera::FindRequiredSize()
 	// Start the camera's size calculation at zero.
 	float Size = 0.0f;
 
-	// Go through all targets.
-	for (int i = 0; i < Targets.Num(); i++)
-	{
-		// Skip invalid or hidden targets.
-		if (!IsValid(Targets[i]) || Targets[i]->IsHidden())
-			continue;
+	float HalfWidth = 0.0f;
+    float HalfHeight = 0.0f;
 
-		// Find the target position in camera local space.
-		FVector TargetLocalPos = GetActorTransform().InverseTransformPosition(
-			Targets[i]->GetActorLocation()
-		);
+    for (int i = 0; i < Targets.Num(); i++)
+    {
+        if (!IsValid(Targets[i]) || Targets[i]->IsHidden())
+            continue;
 
-		// Find the position of the target relative to the desired camera position.
-		FVector DesiredPosToTarget = TargetLocalPos - DesiredLocalPos;
+        FVector TargetLocalPos =
+            GetActorTransform().InverseTransformPosition(
+                Targets[i]->GetActorLocation()
+            );
 
-		// Find the largest vertical distance.
-		Size = FMath::Max(Size, FMath::Abs(DesiredPosToTarget.Z));
+        FVector RelativePos = TargetLocalPos - DesiredLocalPos;
 
-		// Find the largest horizontal distance.
-		Size = FMath::Max(Size, FMath::Abs(DesiredPosToTarget.Y));
+        // Find the maximum horizontal distance.
+        HalfWidth = FMath::Max(HalfWidth, FMath::Abs(RelativePos.Y));
 
-	}
+        // Find the maximum vertical distance.
+        HalfHeight = FMath::Max(HalfHeight, FMath::Abs(RelativePos.Z));
+    }
+
+    // Account for the camera's aspect ratio.
+    float AspectRatio = Camera->AspectRatio;
+
+    // Convert vertical distance into the equivalent horizontal distance.
+    float RequiredWidth = FMath::Max(
+        HalfWidth,
+        HalfHeight * AspectRatio
+    );
+
+    // Add the edge buffer and account for the full width.
+    RequiredWidth = (RequiredWidth + ScreenEdgeBuffer) * 2.0f;
+
+    // Respect minimum camera size.
+    RequiredWidth = FMath::Max(RequiredWidth, MinSize);
+
+    return RequiredWidth;
 
 	// Add the edge buffer.
 	Size += ScreenEdgeBuffer;
