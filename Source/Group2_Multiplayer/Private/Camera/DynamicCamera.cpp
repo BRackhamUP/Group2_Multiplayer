@@ -184,6 +184,7 @@ void ADynamicCamera::SetStartPositionAndSize()
 	float RequiredSize = FindRequiredSize();
 
 	Camera->SetOrthoWidth(RequiredSize);
+	//bleh
 }
 
 
