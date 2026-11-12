@@ -48,6 +48,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Customisation|Input")
 	TObjectPtr<UInputAction> NavigateCustomisationAction;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Customisation|Input")
+	TObjectPtr<UInputAction> RotateSpud;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Customisation")
+	void RotatePreviewCharacter(int32 PlayerNumber, float DeltaYaw);
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Customisation|Ready", meta = (ClampMin = "0.1"))
 	float RequiredReadyHoldTime = 3.0f;
 
@@ -59,6 +65,7 @@ private:
 	void HandlePreviousCosmetic();
 	void HandleNextCosmetic();
 	void HandleNavigateCustomisation(const FInputActionValue& Value);
+	void HandleRotateSpud(const FInputActionValue& Value);
 
 	void CycleSelectedCosmetic(int32 Direction);
 	int32 GetPlayerNumber() const;

@@ -84,6 +84,11 @@ void AReadyUpPlayerController::SetupInputComponent()
 	{
 		EnhancedInputComponent->BindAction(NavigateCustomisationAction, ETriggerEvent::Started, this, &AReadyUpPlayerController::HandleNavigateCustomisation);
 	}
+
+	if (RotateSpud)
+	{
+		EnhancedInputComponent->BindAction(RotateSpud, ETriggerEvent::Triggered, this, &AReadyUpPlayerController::HandleRotateSpud);
+	}
 }
 
 void AReadyUpPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -323,4 +328,19 @@ void AReadyUpPlayerController::HandleNavigateCustomisation(const FInputActionVal
 	}
 
 	MultiplayerGameInstance->MoveCustomisationSelection(PlayerNumber, Direction);
+}
+
+void AReadyUpPlayerController::HandleRotateSpud(const FInputActionValue& Value)
+{
+	const int32 PlayerNumber = GetPlayerNumber();
+
+	if (PlayerNumber == INDEX_NONE)
+	{
+		return;
+	}
+
+	const float StickX = Value.Get<float>();
+	const float DeltaYaw = StickX * 120.0f * GetWorld()->GetDeltaSeconds();
+
+	RotatePreviewCharacter(PlayerNumber, DeltaYaw);
 }
