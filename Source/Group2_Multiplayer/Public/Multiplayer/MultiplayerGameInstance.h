@@ -236,6 +236,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Multiplayer|Customisation|Options")
 	TArray<FCosmeticMeshOption> ClothingOptions;
 
+	// copy of the spud shops purchased item flags
+	// these unlocks are shared between all players in the session
+	// index 0-4 = Headwear, 5-9 = Eyewear 10-14 = Beard, 15-19 = Clothing.
+	UPROPERTY(BlueprintReadWrite, Category = "Multiplayer|Customisation|Shop")
+	TArray<bool> PurchasedShopCosmetics;
+
 	UPROPERTY(BlueprintAssignable, Category = "Multiplayer|Events")
 	FOnSessionPlayersChanged OnSessionPlayersChanged;
 
@@ -245,10 +251,13 @@ protected:
 	TArray<FSessionPlayerData> SessionPlayers;
 
 private:
-	
+
 	// internal helper methodss
 	void GetConnectedGamepadMappings(TArray<FInputDeviceId>& OutDeviceIds, TArray<FPlatformUserId>& OutPlatformUsers) const;
 	int32 FindConnectedControllerIndex(const TArray<FPlatformUserId>& PlatformUsers, int32 PlatformUserInternalId) const;
 	void RebuildLocalPlayersIfNeeded(const TArray<FPlatformUserId>& OrderedPlatformUsers);
 	bool CanCustomisePlayer(int32 PlayerNumber) const;
+
+	// cycles through a cosmetic category while skipping locked items
+	void CycleAvailableCosmetic(int32& CurrentIndex, int32 OptionCount, int32 CategoryIndex, int32 Direction);
 };
