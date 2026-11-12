@@ -621,6 +621,35 @@ void UMultiplayerGameInstance::MoveCustomisationSelection(int32 PlayerNumber, in
 	OnSessionPlayersChanged.Broadcast();
 }
 
+void UMultiplayerGameInstance::CycleAvailableCosmetic(int32& CurrentIndex, int32 OptionCount, int32 CategoryIndex, int32 Direction)
+{
+	int32 CandidateIndex = CurrentIndex;
+
+	// try each option at most once
+	for (int32 Attempt = 0; Attempt < OptionCount; ++Attempt)
+	{
+		CycleIndexWrapped(CandidateIndex, OptionCount, Direction);
+
+		// index 0 and indices 6 onwards are always available
+		if (CandidateIndex == 0 || CandidateIndex >= 6)
+		{
+			CurrentIndex = CandidateIndex;
+			return;
+		}
+
+		// only indices 1-5 require a purchase check
+		// convert the cosmetic category and option into the shop's 0-19 index
+		const int32 ShopIndex = (CategoryIndex - 2) * 5 + (CandidateIndex - 1);
+
+		if (PurchasedShopCosmetics.IsValidIndex(ShopIndex) && PurchasedShopCosmetics[ShopIndex])
+		{
+			CurrentIndex = CandidateIndex;
+			return;
+		}
+	}
+
+}
+
 // utilise the cycle through index method to go through the cosmetic items currently present in that array
 void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerNumber, int32 Direction)
 {
@@ -643,19 +672,19 @@ void UMultiplayerGameInstance::CycleCosmetic(int32 PlayerNumber, int32 Direction
 		return;
 
 	case 2: // headwear
-		CycleIndexWrapped(PlayerData.HeadwearIndex, HeadwearOptions.Num(), Direction);
+		CycleAvailableCosmetic(PlayerData.HeadwearIndex, HeadwearOptions.Num(), 2, Direction);
 		break;
 
 	case 3: // eyewear
-		CycleIndexWrapped(PlayerData.EyewearIndex, EyewearOptions.Num(), Direction);
+		CycleAvailableCosmetic(PlayerData.EyewearIndex, EyewearOptions.Num(), 3, Direction);
 		break;
 
 	case 4: // beard
-		CycleIndexWrapped(PlayerData.BeardIndex, BeardOptions.Num(), Direction);
+		CycleAvailableCosmetic(PlayerData.BeardIndex, BeardOptions.Num(), 4, Direction);
 		break;
 
 	case 5: // clothing
-		CycleIndexWrapped(PlayerData.ClothingIndex, ClothingOptions.Num(), Direction);
+		CycleAvailableCosmetic(PlayerData.ClothingIndex, ClothingOptions.Num(), 5, Direction);
 		break;
 
 	default:
@@ -774,7 +803,7 @@ FText UMultiplayerGameInstance::GetCustomisationDisplayName(int32 PlayerNumber, 
 	}
 	// access current players stored cosmetic selections
 	const FSessionPlayerData& PlayerData = SessionPlayers[PlayerNumber];
-	
+
 	// find the correct cosmetic array by useing the category index
 	switch (CategoryIndex)
 	{
