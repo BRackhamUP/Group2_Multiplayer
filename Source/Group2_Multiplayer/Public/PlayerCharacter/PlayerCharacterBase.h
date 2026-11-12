@@ -13,6 +13,7 @@ class AItemBase;
 class UDecalComponent;
 class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
+class AWeaponBase;
 
 UCLASS()
 class GROUP2_MULTIPLAYER_API APlayerCharacterBase : public ACharacter
@@ -130,6 +131,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item Pickup")
 	bool bShowDebugPickupPrompt = true;
 
+	// fists used when not holding a weapon, set to BP_Unarmed in the character BP
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat")
+	TSubclassOf<AWeaponBase> UnarmedWeaponClass;
+
 	// called when the pickup prompt should appear/disappear (or point at a different item)
 	// use GetHeldItem to decide between pickup and swap
 	// build the actual prompt UI in BP from this event
@@ -182,6 +187,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item Pickup")
 	bool IsHoldingItem() const { return HeldItem != nullptr; }
 
+	// held weapon if there is one, otherwise the fists. the combat BP should always attack with this
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	AWeaponBase* GetActiveWeapon() const;
+
 	// set the ring to any colour (for the preview in customization screen)
 	UFUNCTION(BlueprintCallable, Category = "Player Ring")
 	void SetRingColour(FLinearColor NewColour);
@@ -232,6 +241,13 @@ private:
 	// the weapon in this players hand (only 1 at a time)
 	UPROPERTY(Transient)
 	TObjectPtr<AItemBase> HeldItem;
+
+	// spawns this players fists and attaches them, called from BeginPlay
+	void SpawnUnarmedWeapon();
+
+	// this players fists, always attached, never stored in HeldItem
+	UPROPERTY(Transient)
+	TObjectPtr<AWeaponBase> UnarmedWeapon;
 
 	// items currently overlapping the pickup sphere.
 	// weak pointer because they may be destroyed or picked up by someone else

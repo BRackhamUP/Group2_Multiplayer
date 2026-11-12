@@ -24,6 +24,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 
 #include "Items/ItemBase.h"
+#include "Items/WeaponBase.h"
 #include "Multiplayer/MultiplayerGameInstance.h"
 
 namespace
@@ -114,6 +115,9 @@ void APlayerCharacterBase::BeginPlay()
 
 	// apply the current colour
 	SetRingColour(RingColour);
+
+	// give this player their fists for when they arent holding a weapon
+	SpawnUnarmedWeapon();
 }
 
 void APlayerCharacterBase::PossessedBy(AController* NewController)
@@ -133,6 +137,13 @@ void APlayerCharacterBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	HeldItem = nullptr;
 
 	SetPromptedItem(nullptr);
+
+	// fists only exist for this player, so remove them rather than dropping them
+	if (IsValid(UnarmedWeapon))
+	{
+		UnarmedWeapon->Destroy();
+	}
+	UnarmedWeapon = nullptr;
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -585,6 +596,51 @@ bool APlayerCharacterBase::EquipItem(AItemBase* Item)
 	HeldItem = Item;
 	NearbyItems.Remove(Item);
 	return true;
+}
+
+void APlayerCharacterBase::SpawnUnarmedWeapon()
+{
+	if (!UnarmedWeaponClass)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.Instigator = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	UnarmedWeapon = GetWorld()->SpawnActor<AWeaponBase>(UnarmedWeaponClass, GetActorTransform(), Params);
+	if (!UnarmedWeapon)
+	{
+		return;
+	}
+
+	// same attach rules as EquipItem: weapon socket if the mesh has one, otherwise the capsule offset.
+	// AttachToHolder also stops it despawning and hides it from pickup spheres
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (CharacterMesh && CharacterMesh->DoesSocketExist(WeaponSocketName))
+	{
+		UnarmedWeapon->AttachToHolder(this, CharacterMesh, WeaponSocketName);
+	}
+	else
+	{
+		UnarmedWeapon->AttachToHolder(this, GetCapsuleComponent(), NAME_None);
+		UnarmedWeapon->SetActorRelativeLocation(HeldItemFallbackOffset);
+	}
+}
+
+AWeaponBase* APlayerCharacterBase::GetActiveWeapon() const
+{
+	if (IsValid(HeldItem))
+	{
+		if (AWeaponBase* HeldWeapon = Cast<AWeaponBase>(HeldItem))
+		{
+			return HeldWeapon;
+		}
+	}
+
+	return UnarmedWeapon;
 }
 
 void APlayerCharacterBase::SwapToItem(AItemBase* NewItem)
