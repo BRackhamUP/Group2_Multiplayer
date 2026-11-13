@@ -64,26 +64,58 @@ void ADynamicCamera::Move(float DeltaTime)
 	FindAveragePosition();
 	
 	FVector CurrentPosition = Camera->GetComponentLocation();
-	FVector newPosition = FMath::VInterpTo(CurrentPosition,DesiredPosition,DeltaTime, 1.0f/ DampTime);
+	FVector newPosition = FMath::VInterpTo(CurrentPosition,DesiredPosition,DeltaTime, 1.0f/ MovementDampTime);
 	
 	Camera->SetWorldLocation(newPosition);
 }
 
 void ADynamicCamera::Zoom(float DeltaTime)
 {
-	// Find the required size based on the desired position.
-	float RequiredSize = FindRequiredSize();
+	float RequiredSize = FindRequiredHorizontalSize();
 
-	// Smoothly transition to the required size.
 	float NewSize = FMath::FInterpTo(
 		Camera->OrthoWidth,
 		RequiredSize,
 		DeltaTime,
-		1.0f/ DampTime
+		1.0f / HorizontalZoomDampTime
 	);
 
 	Camera->SetOrthoWidth(NewSize);
 }
+
+
+float ADynamicCamera::FindRequiredHorizontalSize()
+{
+	FTransform CameraTransform = Camera->GetComponentTransform();
+
+	float MinY = FLT_MAX;
+	float MaxY = -FLT_MAX;
+
+	for (AActor* Target : Targets)
+	{
+		if (!IsValid(Target) || Target->IsHidden())
+			continue;
+
+		FVector LocalPosition = CameraTransform.InverseTransformPosition(
+			Target->GetActorLocation()
+		);
+
+		MinY = FMath::Min(MinY, LocalPosition.Y);
+		MaxY = FMath::Max(MaxY, LocalPosition.Y);
+	}
+
+	if (MinY == FLT_MAX)
+		return MinSize;
+
+	float Width = MaxY - MinY;
+
+	return FMath::Max(
+		Width + ScreenEdgeBuffer * 2.0f,
+		MinSize
+	);
+}
+
+
 
 void ADynamicCamera::FindAveragePosition()
 {
@@ -117,60 +149,6 @@ void ADynamicCamera::FindAveragePosition()
 
 }
 
-float ADynamicCamera::FindRequiredSize()
-{// Find the position the camera is moving towards in local space.
-	FVector DesiredLocalPos = GetActorTransform().InverseTransformPosition(DesiredPosition);
-
-	// Start the camera's size calculation at zero.
-	float Size = 0.0f;
-
-	float HalfWidth = 0.0f;
-    float HalfHeight = 0.0f;
-
-    for (int i = 0; i < Targets.Num(); i++)
-    {
-        if (!IsValid(Targets[i]) || Targets[i]->IsHidden())
-            continue;
-
-        FVector TargetLocalPos =
-            GetActorTransform().InverseTransformPosition(
-                Targets[i]->GetActorLocation()
-            );
-
-        FVector RelativePos = TargetLocalPos - DesiredLocalPos;
-
-        // Find the maximum horizontal distance.
-        HalfWidth = FMath::Max(HalfWidth, FMath::Abs(RelativePos.Y));
-
-        // Find the maximum vertical distance.
-        HalfHeight = FMath::Max(HalfHeight, FMath::Abs(RelativePos.Z));
-    }
-
-    // Account for the camera's aspect ratio.
-    float AspectRatio = Camera->AspectRatio;
-
-    // Convert vertical distance into the equivalent horizontal distance.
-    float RequiredWidth = FMath::Max(
-        HalfWidth,
-        HalfHeight * AspectRatio
-    );
-
-    // Add the edge buffer and account for the full width.
-    RequiredWidth = (RequiredWidth + ScreenEdgeBuffer) * 2.0f;
-
-    // Respect minimum camera size.
-    RequiredWidth = FMath::Max(RequiredWidth, MinSize);
-
-    return RequiredWidth;
-
-	// Add the edge buffer.
-	Size += ScreenEdgeBuffer;
-
-	// Make sure the camera doesn't zoom in beyond the minimum size.
-	Size = FMath::Max(Size, MinSize);
-
-	return Size;
-}
 
 void ADynamicCamera::SetStartPositionAndSize()
 {
@@ -181,7 +159,7 @@ void ADynamicCamera::SetStartPositionAndSize()
 	SetActorLocation(DesiredPosition);
 
 	// Find and set the required size of the camera.
-	float RequiredSize = FindRequiredSize();
+	float RequiredSize = FindRequiredHorizontalSize();
 
 	Camera->SetOrthoWidth(RequiredSize);
 	//bleh
