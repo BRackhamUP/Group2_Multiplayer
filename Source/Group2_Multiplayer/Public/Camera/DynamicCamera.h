@@ -54,5 +54,9 @@ public:
 	
 	float FindRequiredHorizontalSize();
 	
+	float FindRequiredVerticalSize();
+	
+	float FindRequiredSize();
+	
 	void SetStartPositionAndSize ();
 };

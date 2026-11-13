@@ -71,50 +71,56 @@ void ADynamicCamera::Move(float DeltaTime)
 
 void ADynamicCamera::Zoom(float DeltaTime)
 {
-	float RequiredSize = FindRequiredHorizontalSize();
-
-	float NewSize = FMath::FInterpTo(
+	float requiredSize = FindRequiredHorizontalSize();
+	
+	float newSize = FMath::FInterpTo(
 		Camera->OrthoWidth,
-		RequiredSize,
+		requiredSize,
 		DeltaTime,
-		1.0f / HorizontalZoomDampTime
+		1.0f / MovementDampTime
 	);
-
-	Camera->SetOrthoWidth(NewSize);
+	
+	Camera->SetOrthoWidth(newSize);
 }
 
+float ADynamicCamera::FindRequiredSize()
+{// Find the position the camera is moving towards in local space    
+	FVector DesiredLocalPos = GetActorTransform().InverseTransformPosition(DesiredPosition);
 
-float ADynamicCamera::FindRequiredHorizontalSize()
-{
-	FTransform CameraTransform = Camera->GetComponentTransform();
+	// Start the camera's size calculation at zero  
+	float Size = 0.0f;
 
-	float MinY = FLT_MAX;
-	float MaxY = -FLT_MAX;
-
-	for (AActor* Target : Targets)
+	// Go through all targets    
+	for (int i = 0; i < Targets.Num(); i++)
 	{
-		if (!IsValid(Target) || Target->IsHidden())
+		// Skip invalid or hidden targets       
+		if (!IsValid(Targets[i]) || Targets[i]->IsHidden())
+		{
 			continue;
+		}
 
-		FVector LocalPosition = CameraTransform.InverseTransformPosition(
-			Target->GetActorLocation()
-		);
+		// Find the target position in camera local space       
+		FVector TargetLocalPos = GetActorTransform().InverseTransformPosition(Targets[i]->GetActorLocation());
 
-		MinY = FMath::Min(MinY, LocalPosition.Y);
-		MaxY = FMath::Max(MaxY, LocalPosition.Y);
+		// Find the position of the target relative to the desired camera position.      
+		FVector DesiredPosToTarget = TargetLocalPos - DesiredLocalPos;
+
+		// Find the largest vertical distance
+		Size = FMath::Max(Size, FMath::Abs(DesiredPosToTarget.Z));
+
+		// Find the largest horizontal distance    
+		Size = FMath::Max(Size, FMath::Abs(DesiredPosToTarget.Y));
+
 	}
 
-	if (MinY == FLT_MAX)
-		return MinSize;
+	// Add the edge buffer   
+	Size += ScreenEdgeBuffer;
 
-	float Width = MaxY - MinY;
+	// Make sure the camera doesn't zoom in beyond the minimum size
+	Size = FMath::Max(Size, MinSize);
 
-	return FMath::Max(
-		Width + ScreenEdgeBuffer * 2.0f,
-		MinSize
-	);
+	return Size;
 }
-
 
 
 void ADynamicCamera::FindAveragePosition()
