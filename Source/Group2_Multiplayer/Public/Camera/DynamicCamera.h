@@ -20,7 +20,11 @@ public:
 	ADynamicCamera();
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
-	float DampTime = 0.2;                 // Approximate time for the camera to refocus.
+	float HorizontalZoomDampTime = 0.2;                 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
+	float VerticalZoomDampTime = 0.2;   
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
+	float MovementDampTime = 0.2;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
 	float ScreenEdgeBuffer = 10;           // Space between the top/bottom most target and the screen edge.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
@@ -48,7 +52,7 @@ public:
 	
 	void FindAveragePosition();
 	
-	float FindRequiredSize();
+	float FindRequiredHorizontalSize();
 	
 	void SetStartPositionAndSize ();
 };
