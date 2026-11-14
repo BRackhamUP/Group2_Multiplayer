@@ -340,7 +340,7 @@ void AReadyUpPlayerController::HandleRotateSpud(const FInputActionValue& Value)
 	}
 
 	const float StickX = Value.Get<float>();
-	const float DeltaYaw = StickX * 120.0f * GetWorld()->GetDeltaSeconds();
+	const float DeltaYaw = StickX * -120.0f * GetWorld()->GetDeltaSeconds();
 
 	RotatePreviewCharacter(PlayerNumber, DeltaYaw);
 }
