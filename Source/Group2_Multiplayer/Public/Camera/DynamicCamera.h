@@ -29,6 +29,8 @@ public:
 	float ScreenEdgeBuffer = 10;           // Space between the top/bottom most target and the screen edge.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
 	float MinSize = 6.5;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Numbers")
+	float cameraOffset;
 	
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> Targets;
@@ -52,7 +54,7 @@ public:
 	
 	void FindAveragePosition();
 	
-	float FindRequiredHorizontalSize();
+	float FindRequiredSize();
 	
 	void SetStartPositionAndSize ();
 };
