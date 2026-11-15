@@ -109,10 +109,10 @@ float ADynamicCamera::FindRequiredSize()
 		FVector RelativePos = TargetLocalPos - DesiredLocalPos;
 
 		// Find the maximum horizontal distance.
-		HalfWidth = FMath::Max(HalfWidth, FMath::Abs(RelativePos.Z));
+		HalfWidth = FMath::Max(HalfWidth, FMath::Abs(RelativePos.Y));
 
 		// Find the maximum vertical distance.
-		HalfHeight = FMath::Max(HalfHeight, FMath::Abs(RelativePos.Y));
+		HalfHeight = FMath::Max(HalfHeight, FMath::Abs(RelativePos.Z));
 	}
 
 	// Account for the camera's aspect ratio.
@@ -125,7 +125,7 @@ float ADynamicCamera::FindRequiredSize()
 	);
 	
 	// Add the edge buffer and account for the full width.
-	RequiredWidth = (RequiredWidth + ScreenEdgeBuffer) * 2.0f;
+	RequiredWidth = (RequiredWidth * 1.5f) + ScreenEdgeBuffer;
 
 	// Respect minimum camera size.
 	RequiredWidth = FMath::Max(RequiredWidth, MinSize);
@@ -149,9 +149,12 @@ void ADynamicCamera::FindAveragePosition()
 		// If the target is hidden, skip it.
 		if (Targets[i]->IsHidden())
 			continue;
-
+		
+		FVector TargetLocalPos = Targets[i]->GetActorLocation();
+		TargetLocalPos.Y -= cameraOffset;
+		
 		// Add to the average and increment the target count.
-		averagePos += Targets[i]->GetActorLocation();
+		averagePos += TargetLocalPos;
 		numTargets++;
 	}
 	
