@@ -88,6 +88,10 @@ void AItemBase::AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachPar
 	// snap location/rotation to the socket but keep the item scale
 	AttachToComponent(AttachParent, FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketName);
 
+	// per item offsets
+	SetActorRelativeLocation(HeldLocationOffset);
+	SetActorRelativeRotation(HeldRotationOffset);
+
 	// lets the spawn point that spawned this item know it is free again
 	OnPickedUp.Broadcast(this, NewHolder);
 }

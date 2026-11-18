@@ -63,6 +63,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Despawn", meta = (ClampMin = "0.0", Units = "s"))
 	float DespawnTime = 0.f;
 
+	// position added on top of the weapon socket while held (in socket space)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Held", meta = (Units = "cm"))
+	FVector HeldLocationOffset = FVector::ZeroVector;
+
+	// rotation added on top of the weapon socket while held
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Held")
+	FRotator HeldRotationOffset = FRotator::ZeroRotator;
+
 private:
 	// who is holding the item (null when laying in the arena)
 	UPROPERTY(Transient)
