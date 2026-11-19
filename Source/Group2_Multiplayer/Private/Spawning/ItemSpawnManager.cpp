@@ -130,8 +130,13 @@ AItemBase* AItemSpawnManager::SpawnItemAtPoint(AItemSpawnPoint* SpawnPoint, TSub
 	SpawnParams.SpawnCollisionHandlingOverride =
 		ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
+	// only use the points yaw, the item decides how it lies flat through RestRotation
+	FTransform SpawnTransform = SpawnPoint->GetSpawnTransform();
+	const AItemBase* ItemDefaults = ItemClass.GetDefaultObject();
+	SpawnTransform.SetRotation(ItemDefaults->GetRestRotation(SpawnTransform.Rotator().Yaw).Quaternion());
+
 	AItemBase* NewItem = GetWorld()->SpawnActor<AItemBase>(
-		ItemClass, SpawnPoint->GetSpawnTransform(), SpawnParams);
+		ItemClass, SpawnTransform, SpawnParams);
 
 	if (NewItem)
 	{

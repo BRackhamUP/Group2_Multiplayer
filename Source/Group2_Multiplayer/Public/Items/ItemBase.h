@@ -44,6 +44,16 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Item")
 	FOnItemPickedUp OnPickedUp;
 
+	// rotation for lying on the floor, applied on spawn and drop (held rotation is separate)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Placement")
+	FRotator RestRotation = FRotator::ZeroRotator;
+
+	// rest rotation facing the given yaw
+	FRotator GetRestRotation(float Yaw) const
+	{
+		return (FQuat(FRotator(0.f, Yaw, 0.f)) * FQuat(RestRotation)).Rotator();
+	}
+
 protected:
 	virtual void BeginPlay() override;
 

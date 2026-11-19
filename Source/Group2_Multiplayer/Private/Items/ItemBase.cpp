@@ -108,7 +108,7 @@ void AItemBase::DetachFromHolder(const FVector& DropLocation)
 	SetOwner(nullptr);
 
 	// keep the yaw so it lands facing roughly the way it was held (fixes dropped items looking like they bug out)
-	SetActorLocationAndRotation(DropLocation, FRotator(0.f, GetActorRotation().Yaw, 0.f),
+	SetActorLocationAndRotation(DropLocation, GetRestRotation(GetActorRotation().Yaw),
 		false, nullptr, ETeleportType::TeleportPhysics);
 
 	Mesh->SetCollisionEnabled(CollisionBeforePickup);
