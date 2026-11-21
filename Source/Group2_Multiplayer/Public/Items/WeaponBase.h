@@ -4,8 +4,10 @@
 #include "Items/ItemBase.h"
 #include "WeaponBase.generated.h"
 
+// forward declarations
 class UBoxComponent;
 class UAnimMontage;
+class UMaterialInterface;
 
 UENUM(BlueprintType)
 enum class EWeaponGrip : uint8
@@ -93,6 +95,12 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
+	// clears the highlight overlay when picked up
+	virtual void AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName) override;
+
+	// puts the highlight overlay back when dropped
+	virtual void DetachFromHolder(const FVector& DropLocation) override;
+
 	// the hit collider is separate from mesh (the mesh is used for pickup and physics)
 	// off by default, only turned on between OpenHitWindow and CloseHitWindow so weapons
 	// lying on the floor never knock anyone back
@@ -233,6 +241,11 @@ private:
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	float CalculateChargeAlpha() const;
+
+	// overlay material the mesh has on the floor (MM_Highlight)
+	// cached in BeginPlay, cleared while held and restored on drop
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> HighlightMaterial = nullptr;
 
 	// false outside the hit window, or after the first hit on a single target attack
 	bool bHitWindowOpen = false;
