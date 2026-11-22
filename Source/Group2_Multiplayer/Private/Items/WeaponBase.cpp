@@ -2,6 +2,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
+#include "Materials/MaterialInterface.h"
 
 AWeaponBase::AWeaponBase()
 {
@@ -30,7 +31,32 @@ void AWeaponBase::BeginPlay()
 
 	CurrentDurability = MaxDurability;
 
+	// BP highlight material
+	HighlightMaterial = Mesh->GetOverlayMaterial();
+
 	HitCollider->OnComponentBeginOverlap.AddDynamic(this, &AWeaponBase::OnHitColliderBeginOverlap);
+}
+
+void AWeaponBase::AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName)
+{
+	Super::AttachToHolder(NewHolder, AttachParent, SocketName);
+
+	// no outline while held
+	if (IsHeld())
+	{
+		Mesh->SetOverlayMaterial(nullptr);
+	}
+}
+
+void AWeaponBase::DetachFromHolder(const FVector& DropLocation)
+{
+	Super::DetachFromHolder(DropLocation);
+
+	// back on the floor, outline on
+	if (!IsHeld())
+	{
+		Mesh->SetOverlayMaterial(HighlightMaterial);
+	}
 }
 
 void AWeaponBase::OpenHitWindow(EWeaponAttackType AttackType)

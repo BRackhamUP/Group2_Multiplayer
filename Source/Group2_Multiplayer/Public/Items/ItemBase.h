@@ -36,10 +36,11 @@ public:
 	// C++ ONLY: called by the player character when it equips/drops this item
 	// not exposed to BP so the held item cant get out of sync with the item
 	// turns off physics + collision and attaches the item to the holder
-	void AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName);
+	// virtual so child classes can react to pickup (so WeaponBase can clear its highlight)
+	virtual void AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName);
 
 	// detaches the item, places it at DropLocation and turns physics + collision back on
-	void DetachFromHolder(const FVector& DropLocation);
+	virtual void DetachFromHolder(const FVector& DropLocation);
 
 	UPROPERTY(BlueprintAssignable, Category = "Item")
 	FOnItemPickedUp OnPickedUp;
