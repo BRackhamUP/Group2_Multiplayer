@@ -95,5 +95,9 @@ private:
 
 	void HandleDespawnTimer();
 
+	// held items render custom depth like the player body does, so the ghost ring
+	// treats them as part of the player instead of a wall
+	void SetRenderCustomDepthOnMeshes(bool bEnable);
+
 	FTimerHandle DespawnTimerHandle;
 };

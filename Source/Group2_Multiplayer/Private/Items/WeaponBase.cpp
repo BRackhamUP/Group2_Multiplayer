@@ -1,5 +1,5 @@
 #include "Items/WeaponBase.h"
-#include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "Materials/MaterialInterface.h"
@@ -9,9 +9,9 @@ AWeaponBase::AWeaponBase()
 	// ItemBase sets tick off, if a weapon needs it turn on in its bp
 
 	// attach to ItemBase root so it follows the weapon in the holders hand
-	HitCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("HitCollider"));
+	HitCollider = CreateDefaultSubobject<UCapsuleComponent>(TEXT("HitCollider"));
 	HitCollider->SetupAttachment(Mesh);
-	HitCollider->SetBoxExtent(FVector(10.f, 10.f, 40.f));
+	HitCollider->InitCapsuleSize(10.f, 40.f);
 
 	// only overlaps Pawn, WorldDynamic type so the pickup spheres
 	// never see it (they only look for PhysicsBody)

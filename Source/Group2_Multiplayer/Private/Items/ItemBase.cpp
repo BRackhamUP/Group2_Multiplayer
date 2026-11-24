@@ -1,5 +1,6 @@
 #include "Items/ItemBase.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/MeshComponent.h"
 #include "GameFramework/Character.h"
 #include "TimerManager.h"
 
@@ -16,6 +17,9 @@ AItemBase::AItemBase()
 	Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
 	Mesh->SetSimulatePhysics(true);
 
+	// stops items moving players when they spawn on them
+	Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
 	// static meshes do not generate overlap events by default.
 	// the player pickup sphere needs them to detect items, please do not edit or remove this.
 	Mesh->SetGenerateOverlapEvents(true);
@@ -27,6 +31,18 @@ AItemBase::AItemBase()
 void AItemBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// apply at runtime too, incase a BP child changes the mesh collision preset
+	Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+	// the constructor only covers mesh, this fixes BP children that have their own
+	// mesh components, stop ring painting on all of them
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+	for (UPrimitiveComponent* Primitive : PrimitiveComponents)
+	{
+		Primitive->SetReceivesDecals(false);
+	}
 
 	// countdown starts as soon as the item lands in the arena
 	StartDespawnTimer();
@@ -47,6 +63,17 @@ void AItemBase::HandleDespawnTimer()
 	if (!IsHeld())
 	{
 		Destroy();
+	}
+}
+
+void AItemBase::SetRenderCustomDepthOnMeshes(bool bEnable)
+{
+	// mesh components only
+	TArray<UMeshComponent*> MeshComponents;
+	GetComponents<UMeshComponent>(MeshComponents);
+	for (UMeshComponent* MeshComponent : MeshComponents)
+	{
+		MeshComponent->SetRenderCustomDepth(bEnable);
 	}
 }
 
@@ -92,6 +119,9 @@ void AItemBase::AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachPar
 	SetActorRelativeLocation(HeldLocationOffset);
 	SetActorRelativeRotation(HeldRotationOffset);
 
+	// stops the ghost ring showing through held items
+	SetRenderCustomDepthOnMeshes(true);
+
 	// lets the spawn point that spawned this item know it is free again
 	OnPickedUp.Broadcast(this, NewHolder);
 }
@@ -113,6 +143,9 @@ void AItemBase::DetachFromHolder(const FVector& DropLocation)
 
 	Mesh->SetCollisionEnabled(CollisionBeforePickup);
 	Mesh->SetSimulatePhysics(true);
+
+	// back on the floor, no longer part of the player (for ghost ring)
+	SetRenderCustomDepthOnMeshes(false);
 
 	// item is on the floor, start despawn timer again
 	StartDespawnTimer();

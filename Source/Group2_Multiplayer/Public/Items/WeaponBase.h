@@ -5,7 +5,7 @@
 #include "WeaponBase.generated.h"
 
 // forward declarations
-class UBoxComponent;
+class UCapsuleComponent;
 class UAnimMontage;
 class UMaterialInterface;
 
@@ -104,8 +104,9 @@ public:
 	// the hit collider is separate from mesh (the mesh is used for pickup and physics)
 	// off by default, only turned on between OpenHitWindow and CloseHitWindow so weapons
 	// lying on the floor never knock anyone back
+	// capsule rather than box: rounded ends fit swinging weapons better and avoid corner hits
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Components")
-	TObjectPtr<UBoxComponent> HitCollider;
+	TObjectPtr<UCapsuleComponent> HitCollider;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|General")
 	EWeaponGrip Grip = EWeaponGrip::OneHanded;

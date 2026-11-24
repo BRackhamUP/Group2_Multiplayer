@@ -22,6 +22,7 @@
 #include "Components/DecalComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "TimerManager.h"
 
 #include "Items/ItemBase.h"
 #include "Items/WeaponBase.h"
@@ -106,12 +107,7 @@ void APlayerCharacterBase::BeginPlay()
 	PickupSphere->OnComponentEndOverlap.AddDynamic(this, &APlayerCharacterBase::OnPickupSphereEndOverlap);
 
 	// stop rings from painting onto character meshes
-	TArray<UPrimitiveComponent*> PrimitiveComponents;
-	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
-	for (UPrimitiveComponent* Primitive : PrimitiveComponents)
-	{
-		Primitive->SetReceivesDecals(false);
-	}
+	DisableDecalsOnCharacter();
 
 	// apply the current colour
 	SetRingColour(RingColour);
@@ -125,6 +121,41 @@ void APlayerCharacterBase::PossessedBy(AController* NewController)
 	Super::PossessedBy(NewController);
 
 	ApplyRingColourFromSession();
+
+	// cosmetics can be added after BeginPlay, so run this again now we know who the player is
+	DisableDecalsOnCharacter();
+
+	// and once more next frame (this is just for my test level, as I apply ring colour on the bp directly)
+	GetWorldTimerManager().SetTimerForNextTick(this, &APlayerCharacterBase::DisableDecalsOnCharacter);
+}
+
+void APlayerCharacterBase::DisableDecalsOnCharacter()
+{
+	TArray<UPrimitiveComponent*> Primitives;
+	GetComponents<UPrimitiveComponent>(Primitives, true);
+
+	TArray<AActor*> AttachedActors;
+	GetAttachedActors(AttachedActors, true, true);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (!IsValid(Attached))
+		{
+			continue;
+		}
+
+		TArray<UPrimitiveComponent*> AttachedPrimitives;
+		Attached->GetComponents<UPrimitiveComponent>(AttachedPrimitives, true);
+		Primitives.Append(AttachedPrimitives);
+	}
+
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		// only touch ones that need it, SetReceivesDecals refreshes the render state
+		if (Primitive && Primitive->bReceivesDecals)
+		{
+			Primitive->SetReceivesDecals(false);
+		}
+	}
 }
 
 void APlayerCharacterBase::EndPlay(const EEndPlayReason::Type EndPlayReason)

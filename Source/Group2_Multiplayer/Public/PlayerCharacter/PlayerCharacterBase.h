@@ -203,6 +203,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player Ring")
 	void ApplyRingColourFromSession();
 
+	// stops this player's ring painting on their body, cosmetics and attached actors
+	// BlueprintCallable so customisation can call it again if cosmetics are added later
+	UFUNCTION(BlueprintCallable, Category = "Player Ring")
+	void DisableDecalsOnCharacter();
+
 private:
 	// these must be UFUNCTIONs so they can be bound with AddDynamic
 	UFUNCTION()
