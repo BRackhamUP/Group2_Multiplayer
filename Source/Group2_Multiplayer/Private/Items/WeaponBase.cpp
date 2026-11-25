@@ -52,6 +52,10 @@ void AWeaponBase::DetachFromHolder(const FVector& DropLocation)
 {
 	Super::DetachFromHolder(DropLocation);
 
+	// cancel any held state so next one doesnt inherit it
+	StopBlocking();
+	bIsCharging = false;
+
 	// back on the floor, outline on
 	if (!IsHeld())
 	{
