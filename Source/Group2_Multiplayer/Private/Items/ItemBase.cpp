@@ -24,6 +24,9 @@ AItemBase::AItemBase()
 	// the player pickup sphere needs them to detect items, please do not edit or remove this.
 	Mesh->SetGenerateOverlapEvents(true);
 
+	// re-apply custom depth if it is ever turned off
+	Mesh->SetRenderCustomDepth(true);
+
 	// for player ring, keep this otherwise the decal paints over the weapons lol
 	Mesh->SetReceivesDecals(false);
 }
@@ -124,6 +127,8 @@ void AItemBase::AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachPar
 
 	// lets the spawn point that spawned this item know it is free again
 	OnPickedUp.Broadcast(this, NewHolder);
+
+	Mesh->SetRenderCustomDepth(true);
 }
 
 void AItemBase::DetachFromHolder(const FVector& DropLocation)
@@ -149,4 +154,6 @@ void AItemBase::DetachFromHolder(const FVector& DropLocation)
 
 	// item is on the floor, start despawn timer again
 	StartDespawnTimer();
+
+	Mesh->SetRenderCustomDepth(true);
 }
