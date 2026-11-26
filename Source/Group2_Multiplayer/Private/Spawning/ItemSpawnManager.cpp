@@ -113,6 +113,7 @@ AItemBase* AItemSpawnManager::SpawnItem()
 
 AItemBase* AItemSpawnManager::SpawnItemAtPoint(AItemSpawnPoint* SpawnPoint, TSubclassOf<AItemBase> ItemClass)
 {
+
 	if (!IsValid(SpawnPoint) || !ItemClass)
 	{
 		return nullptr;
@@ -130,10 +131,14 @@ AItemBase* AItemSpawnManager::SpawnItemAtPoint(AItemSpawnPoint* SpawnPoint, TSub
 	SpawnParams.SpawnCollisionHandlingOverride =
 		ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-	// only use the points yaw, the item decides how it lies flat through RestRotation
+	// the point gives yaw and an X offset, the offset is added to the items rest X
 	FTransform SpawnTransform = SpawnPoint->GetSpawnTransform();
+	const FRotator PointRotation = SpawnTransform.Rotator();
 	const AItemBase* ItemDefaults = ItemClass.GetDefaultObject();
-	SpawnTransform.SetRotation(ItemDefaults->GetRestRotation(SpawnTransform.Rotator().Yaw).Quaternion());
+
+	FRotator Rest = ItemDefaults->RestRotation;
+	Rest.Roll += PointRotation.Roll;
+	SpawnTransform.SetRotation((FQuat(FRotator(0.f, PointRotation.Yaw, 0.f)) * FQuat(Rest)));
 
 	AItemBase* NewItem = GetWorld()->SpawnActor<AItemBase>(
 		ItemClass, SpawnTransform, SpawnParams);
@@ -142,8 +147,8 @@ AItemBase* AItemSpawnManager::SpawnItemAtPoint(AItemSpawnPoint* SpawnPoint, TSub
 	{
 		SpawnPoint->SetSpawnedItem(NewItem);
 		// Dont remove this log until we are bug fixing and polishing
-		UE_LOG(LogItemSpawning, Log, TEXT("Spawned %s at %s."),
-			*NewItem->GetName(), *SpawnPoint->GetName());
+		UE_LOG(LogItemSpawning, Log, TEXT("Spawned %s at %s, yaw %.1f."),
+			*NewItem->GetName(), *SpawnPoint->GetName(), NewItem->GetActorRotation().Yaw);
 	}
 
 	return NewItem;

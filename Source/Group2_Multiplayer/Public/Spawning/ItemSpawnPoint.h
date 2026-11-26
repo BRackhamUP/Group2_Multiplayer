@@ -56,6 +56,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item Spawning", meta = (Units = "cm"))
 	float SpawnHeightOffset = 50.f;
 
+	// Give spawned items a random facing (Z rotation)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item Spawning")
+	bool bRandomizeYaw = true;
+
+	// Random amount added to the items rest X rotation on spawn 0 = off, 180 = fully random
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item Spawning", meta = (ClampMin = "0.0", ClampMax = "180.0", Units = "deg"))
+	float RandomRollRange = 0.f;
+
 private:
 	// The item currently occupying this point
 	// Must use weak pointer, if the item is

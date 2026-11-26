@@ -59,6 +59,19 @@ bool AItemSpawnPoint::CanSpawnItem(TSubclassOf<AItemBase> ItemClass) const
 	return false;
 }
 
+FTransform AItemSpawnPoint::GetSpawnTransform() const
+{
+	FTransform SpawnTransform = GetActorTransform();
+	SpawnTransform.AddToTranslation(FVector(0.f, 0.f, SpawnHeightOffset));
+
+	// Only yaw (Z) and an X offset are passed on, the item's RestRotation handles lying flat
+	const float Yaw = bRandomizeYaw ? FMath::FRandRange(0.f, 360.f) : GetActorRotation().Yaw;
+	const float RollOffset = RandomRollRange > 0.f ? FMath::FRandRange(-RandomRollRange, RandomRollRange) : 0.f;
+	SpawnTransform.SetRotation(FRotator(0.f, Yaw, RollOffset).Quaternion());
+
+	return SpawnTransform;
+}
+
 void AItemSpawnPoint::SetSpawnedItem(AItemBase* Item)
 {
 	// Stop listening to any previous item
@@ -89,11 +102,4 @@ void AItemSpawnPoint::HandleSpawnedItemPickedUp(AItemBase* Item, ACharacter* Hol
 void AItemSpawnPoint::SetSpawnPointEnabled(bool bNewEnabled)
 {
 	bEnabled = bNewEnabled;
-}
-
-FTransform AItemSpawnPoint::GetSpawnTransform() const
-{
-	FTransform SpawnTransform = GetActorTransform();
-	SpawnTransform.AddToTranslation(FVector(0.f, 0.f, SpawnHeightOffset));
-	return SpawnTransform;
 }
