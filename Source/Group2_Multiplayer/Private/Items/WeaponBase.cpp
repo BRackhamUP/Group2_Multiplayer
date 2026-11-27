@@ -1,8 +1,27 @@
 #include "Items/WeaponBase.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "Materials/MaterialInterface.h"
+
+namespace
+{
+	// same collision setup for both hit colliders
+	void SetupHitColliderCollision(UShapeComponent* Shape)
+	{
+		// only overlaps Pawn, WorldDynamic so the pickup spheres
+		// never see it (they only look for PhysicsBody)
+		Shape->SetCollisionObjectType(ECC_WorldDynamic);
+		Shape->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Shape->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+		Shape->SetGenerateOverlapEvents(true);
+		Shape->SetCanEverAffectNavigation(false);
+
+		// off until a swing opens the hit window
+		Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
 
 AWeaponBase::AWeaponBase()
 {
@@ -12,17 +31,32 @@ AWeaponBase::AWeaponBase()
 	HitCollider = CreateDefaultSubobject<UCapsuleComponent>(TEXT("HitCollider"));
 	HitCollider->SetupAttachment(Mesh);
 	HitCollider->InitCapsuleSize(10.f, 40.f);
+	SetupHitColliderCollision(HitCollider);
 
-	// only overlaps Pawn, WorldDynamic type so the pickup spheres
-	// never see it (they only look for PhysicsBody)
-	HitCollider->SetCollisionObjectType(ECC_WorldDynamic);
-	HitCollider->SetCollisionResponseToAllChannels(ECR_Ignore);
-	HitCollider->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-	HitCollider->SetGenerateOverlapEvents(true);
-	HitCollider->SetCanEverAffectNavigation(false);
+	// box option for flat weapons (frying pan, shield), unused unless HitShape = Box
+	HitBox = CreateDefaultSubobject<UBoxComponent>(TEXT("HitBox"));
+	HitBox->SetupAttachment(Mesh);
+	HitBox->InitBoxExtent(FVector(10.f, 10.f, 40.f));
+	SetupHitColliderCollision(HitBox);
+}
 
-	// off until a swing opens the hit window
-	HitCollider->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+void AWeaponBase::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// only draw the collider in use for visual clarity
+	HitCollider->SetVisibility(HitShape == EWeaponHitShape::Capsule);
+	HitBox->SetVisibility(HitShape == EWeaponHitShape::Box);
+}
+
+UShapeComponent* AWeaponBase::GetActiveHitCollider() const
+{
+	if (HitShape == EWeaponHitShape::Box)
+	{
+		return HitBox.Get();
+	}
+
+	return HitCollider.Get();
 }
 
 void AWeaponBase::BeginPlay()
@@ -34,7 +68,13 @@ void AWeaponBase::BeginPlay()
 	// BP highlight material
 	HighlightMaterial = Mesh->GetOverlayMaterial();
 
+	// colliders are never drawn in game unless bShowHitColliderDuringSwing is on
+	HitCollider->SetHiddenInGame(true);
+	HitBox->SetHiddenInGame(true);
+
+	// bind both since only the active one is ever switched on
 	HitCollider->OnComponentBeginOverlap.AddDynamic(this, &AWeaponBase::OnHitColliderBeginOverlap);
+	HitBox->OnComponentBeginOverlap.AddDynamic(this, &AWeaponBase::OnHitColliderBeginOverlap);
 }
 
 void AWeaponBase::AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName)
@@ -53,6 +93,7 @@ void AWeaponBase::DetachFromHolder(const FVector& DropLocation)
 	Super::DetachFromHolder(DropLocation);
 
 	// cancel any held state so next one doesnt inherit it
+	CloseHitWindow();
 	StopBlocking();
 	bIsCharging = false;
 
@@ -75,13 +116,25 @@ void AWeaponBase::OpenHitWindow(EWeaponAttackType AttackType)
 	bHitWindowOpen = true;
 
 	// turning collision on also fires overlaps for players already inside the collider
-	HitCollider->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	UShapeComponent* ActiveCollider = GetActiveHitCollider();
+	ActiveCollider->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+
+	if (bShowHitColliderDuringSwing)
+	{
+		ActiveCollider->SetHiddenInGame(false);
+	}
 }
 
 void AWeaponBase::CloseHitWindow()
 {
 	bHitWindowOpen = false;
+
+	// both, in case HitShape was changed while a window was open
 	HitCollider->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HitBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HitCollider->SetHiddenInGame(true);
+	HitBox->SetHiddenInGame(true);
+
 	CurrentAttack = EWeaponAttackType::None;
 	ChargeAlpha = 0.f;
 }

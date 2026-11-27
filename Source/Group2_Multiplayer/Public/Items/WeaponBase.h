@@ -6,6 +6,8 @@
 
 // forward declarations
 class UCapsuleComponent;
+class UBoxComponent;
+class UShapeComponent;
 class UAnimMontage;
 class UMaterialInterface;
 
@@ -14,6 +16,14 @@ enum class EWeaponGrip : uint8
 {
 	OneHanded UMETA(DisplayName = "1H"),
 	TwoHanded UMETA(DisplayName = "2H")
+};
+
+// which hit collider the weapon swings with
+UENUM(BlueprintType)
+enum class EWeaponHitShape : uint8
+{
+	Capsule,
+	Box
 };
 
 UENUM(BlueprintType)
@@ -94,6 +104,9 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	// shows only the chosen hit collider in the BP viewport
+	virtual void OnConstruction(const FTransform& Transform) override;
+
 public:
 	// clears the highlight overlay when picked up
 	virtual void AttachToHolder(ACharacter* NewHolder, USceneComponent* AttachParent, FName SocketName) override;
@@ -101,12 +114,27 @@ public:
 	// puts the highlight overlay back when dropped
 	virtual void DetachFromHolder(const FVector& DropLocation) override;
 
-	// the hit collider is separate from mesh (the mesh is used for pickup and physics)
-	// off by default, only turned on between OpenHitWindow and CloseHitWindow so weapons
-	// lying on the floor never knock anyone back
-	// capsule rather than box: rounded ends fit swinging weapons better and avoid corner hits
+	// the hit colliders are separate from mesh (the mesh is used for pickup and physics)
+	// off by default, only turned on between OpenHitWindow and CloseHitWindow
+	// HitShape picks which one is used, capsule is the default, box for shield etc.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Components")
 	TObjectPtr<UCapsuleComponent> HitCollider;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Components")
+	TObjectPtr<UBoxComponent> HitBox;
+
+	// which collider registers hits, only the chosen one is shown in the BP viewport
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Components")
+	EWeaponHitShape HitShape = EWeaponHitShape::Capsule;
+
+	// DEBUG: draw the active hit collider in game only while its hit window is open,
+	// so you can see exactly which collider is landing hits
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Debug")
+	bool bShowHitColliderDuringSwing = false;
+
+	// the collider chosen by HitShape, use this in BP instead of HitCollider/HitBox directly
+	UFUNCTION(BlueprintPure, Category = "Weapon|Components")
+	UShapeComponent* GetActiveHitCollider() const;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|General")
 	EWeaponGrip Grip = EWeaponGrip::OneHanded;
@@ -128,6 +156,10 @@ public:
 	// 0 = no reduction, 1 = no knockback at all while blocking
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Block", meta = (EditCondition = "bSecondaryIsBlock", ClampMin = "0.0", ClampMax = "1.0"))
 	float BlockKnockbackReduction = 0.5f;
+
+	// pose played while blocking, play on StartBlocking, stop on StopBlocking
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Block", meta = (EditCondition = "bSecondaryIsBlock"))
+	TObjectPtr<UAnimMontage> BlockMontage = nullptr;
 
 	// 0-1 chance to stun on hit (frying pan would be 0.2), not stacking the duration is handled by the stunned player
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Stun", meta = (ClampMin = "0.0", ClampMax = "1.0"))
